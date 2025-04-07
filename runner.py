@@ -16,7 +16,7 @@ sampler = OaiSampler('configs/run.yaml')
 # Создаем эвалюатор
 evaluator = RussianMathEval(
     equality_checker=equality_checker,
-    num_examples=None,  # или None для всего датасета
+    num_examples=4,  # или None для всего датасета
     debug=config.get('debug', False)  # Используем значение из конфига
 )
 

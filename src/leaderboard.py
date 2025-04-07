@@ -14,6 +14,10 @@ class Leaderboard:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Создаем директории для детальных результатов
+        self.details_dir = self.output_dir / "details"
+        self.details_dir.mkdir(exist_ok=True)
+        
         # Загружаем конфиг
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
@@ -37,8 +41,54 @@ class Leaderboard:
         with open(self.results_file, 'w') as f:
             json.dump(self.results, f, indent=2)
 
+    def _save_detailed_results(self, model_name: str, results: List[Dict], timestamp: str):
+        """Сохраняет детальные результаты для каждого примера"""
+        model_dir = self.details_dir / model_name
+        model_dir.mkdir(exist_ok=True)
+        
+        details = {
+            "timestamp": timestamp,
+            "model_name": model_name,
+            "examples": []
+        }
+        
+        for idx, result in enumerate(results):
+            example_details = {
+                "index": idx,
+                "task": result.convo[0]["content"],
+                "model_response": result.convo[1]["content"],
+                "correct_answer": result.correct_answer,
+                "extracted_answer": result.extracted_answer,
+                "score": result.score,
+                "tokens": result.tokens
+            }
+            details["examples"].append(example_details)
+            
+        # Сохраняем детальные результаты
+        with open(model_dir / f"details_{timestamp}.json", 'w', encoding='utf-8') as f:
+            json.dump(details, f, indent=2, ensure_ascii=False)
+            
+        # Генерируем markdown с детальными результатами
+        md = f"# Detailed Results for {model_name}\n\n"
+        md += f"Timestamp: {timestamp}\n\n"
+        
+        for example in details["examples"]:
+            md += f"## Example {example['index'] + 1}\n\n"
+            md += f"### Task\n{example['task']}\n\n"
+            md += f"### Model Response\n{example['model_response']}\n\n"
+            md += f"### Correct Answer\n{example['correct_answer']}\n\n"
+            md += f"### Extracted Answer\n{example['extracted_answer']}\n\n"
+            md += f"### Score\n{example['score']}\n\n"
+            md += f"### Tokens Used\n{example['tokens']}\n\n"
+            md += "---\n\n"
+            
+        with open(model_dir / f"details_{timestamp}.md", 'w', encoding='utf-8') as f:
+            f.write(md)
+
     def evaluate_model(self, model_name: str, system_prompt: str = None) -> Dict[str, Any]:
         """Оценивает одну модель"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
         # Обновляем конфиг для текущей модели
         self.config['model_list'] = [model_name]
         if system_prompt is not None:
@@ -64,10 +114,13 @@ class Leaderboard:
         # Запускаем оценку
         results = evaluator(sampler)
         
+        # Сохраняем детальные результаты
+        self._save_detailed_results(model_name, results.results, timestamp)
+        
         # Собираем метрики
         evaluation_time = time.time() - start_time
         
-        # Получаем использованные токены из результатов
+        # Получаем использованные токены
         for result in results.results:
             if hasattr(result, 'tokens'):
                 total_tokens += result.tokens
@@ -79,7 +132,7 @@ class Leaderboard:
             "total_tokens": total_tokens,
             "evaluation_time": evaluation_time,
             "system_prompt": system_prompt,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": timestamp,
             "config": {
                 "temperature": self.config.get('temperature', 0.0),
                 "max_tokens": self.config.get('max_tokens', 2048),
@@ -88,7 +141,7 @@ class Leaderboard:
         }
         
         # Сохраняем результат
-        self.results[f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"] = model_result
+        self.results[f"{model_name}_{timestamp}"] = model_result
         self._save_results()
         
         # Удаляем временный конфиг
@@ -111,8 +164,8 @@ class Leaderboard:
         md += f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         
         # Заголовок таблицы
-        md += "| Model | Score | Tokens Used | System Prompt | Evaluation Time |\n"
-        md += "|-------|--------|-------------|---------------|----------------|\n"
+        md += "| Model | Score | Tokens Used | System Prompt | Evaluation Time | Details |\n"
+        md += "|-------|--------|-------------|---------------|----------------|----------|\n"
         
         # Сортируем результаты по score
         sorted_results = sorted(
@@ -127,11 +180,14 @@ class Leaderboard:
             if len(system_prompt) > 30:
                 system_prompt = system_prompt[:27] + "..."
                 
+            details_link = f"[Details](details/{result['model_name']}/details_{result['timestamp']}.md)"
+                
             md += f"| {result['model_name']} "
             md += f"| {result['score']:.3f} "
             md += f"| {result['total_tokens']} "
             md += f"| {system_prompt} "
-            md += f"| {result['evaluation_time']:.1f}s |\n"
+            md += f"| {result['evaluation_time']:.1f}s "
+            md += f"| {details_link} |\n"
             
         # Сохраняем markdown
         with open(self.output_dir / "leaderboard.md", 'w') as f:
