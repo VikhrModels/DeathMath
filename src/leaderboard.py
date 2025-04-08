@@ -7,9 +7,11 @@ from datetime import datetime
 from src.equality_checker import MathEqualityChecker
 from src.sampler import OaiSampler
 from src.mat_boy import RussianMathEval
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from tqdm import tqdm
 import hashlib
+import signal
+import sys
 
 class Leaderboard:
     def __init__(self, config_path: str, output_dir: str = "results", max_workers: int = 4):
@@ -61,14 +63,29 @@ class Leaderboard:
             json.dump(result, f, indent=2)
 
     def _load_results(self) -> Dict:
-        """Загружает существующие результаты"""
+        """Загружает существующие результаты и кэш"""
+        results = {}
+        
+        # Загружаем все результаты из кэша
+        if self.cache_dir.exists():
+            for cache_file in self.cache_dir.glob("*.json"):
+                with open(cache_file, 'r') as f:
+                    cached_result = json.load(f)
+                    model_name = cached_result['model_name']
+                    timestamp = cached_result['timestamp']
+                    results[f"{model_name}_{timestamp}"] = cached_result
+        
+        # Если есть файл с результатами, добавляем их тоже
         if self.results_file.exists():
             with open(self.results_file, 'r') as f:
-                return json.load(f)
-        return {}
+                file_results = json.load(f)
+                results.update(file_results)
+                
+        return results
 
     def _save_results(self):
-        """Сохраняет результаты в JSON"""
+        """Сохраняет все результаты"""
+        # Сохраняем в основной файл результатов
         with open(self.results_file, 'w') as f:
             json.dump(self.results, f, indent=2)
 
@@ -189,11 +206,28 @@ class Leaderboard:
             # Удаляем временный конфиг
             temp_config_path.unlink(missing_ok=True)
 
+    def evaluate_model_parallel(self, args: tuple) -> Dict[str, Any]:
+        """Оценивает одну модель (для использования в ThreadPoolExecutor)"""
+        model_name, system_prompt = args
+        return self.evaluate_model(model_name, system_prompt)
+
     def evaluate_all_models(self, system_prompts: Dict[str, str] = None) -> None:
         """Оценивает все модели из конфига параллельно с использованием кэша"""
         if system_prompts is None:
             system_prompts = {}
             
+        # Сначала загрузим все существующие кэши
+        existing_caches = {}
+        if self.cache_dir.exists():
+            for cache_file in self.cache_dir.glob("*.json"):
+                with open(cache_file, 'r') as f:
+                    cached_data = json.load(f)
+                    model_name = cached_data['model_name']
+                    existing_caches[model_name] = cached_data
+        
+        if self.config.get('debug'):
+            print("\nDebug: Found existing cache files for models:", list(existing_caches.keys()))
+        
         # Создаем список аргументов для параллельной обработки
         eval_args = [
             (model_name, system_prompts.get(model_name))
@@ -202,26 +236,71 @@ class Leaderboard:
         
         # Фильтруем только те модели, которых нет в кэше
         uncached_args = []
+        cached_results = []
+        
         for args in eval_args:
-            cache_key = self._get_cache_key(args[0], args[1])
-            if self._get_cached_result(cache_key) is None:
+            model_name, system_prompt = args
+            
+            if model_name in existing_caches:
+                if self.config.get('debug'):
+                    print(f"Using existing cache for {model_name}")
+                cached_result = existing_caches[model_name]
+                cached_results.append(cached_result)
+                # Добавляем в общие результаты
+                key = f"{model_name}_{cached_result['timestamp']}"
+                self.results[key] = cached_result
+            else:
+                if self.config.get('debug'):
+                    print(f"No cache found for {model_name}")
                 uncached_args.append(args)
+        
+        if cached_results:
+            print(f"\nLoaded {len(cached_results)} models from cache")
         
         if uncached_args:
             print(f"\nEvaluating {len(uncached_args)} uncached models...")
-            # Используем ThreadPoolExecutor только для некэшированных моделей
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                list(tqdm(
-                    executor.map(self.evaluate_model_parallel, uncached_args),
-                    total=len(uncached_args),
-                    desc="Evaluating models"
-                ))
-        else:
-            print("\nAll models found in cache!")
+            
+            def handle_sigint(signum, frame):
+                print("\nGracefully shutting down... Please wait for current evaluations to complete.")
+                executor.shutdown(wait=True)
+                sys.exit(0)
+            
+            # Устанавливаем обработчик SIGINT
+            original_sigint = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, handle_sigint)
+            
+            try:
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    futures = []
+                    for args in uncached_args:
+                        future = executor.submit(self.evaluate_model_parallel, args)
+                        futures.append(future)
+                    
+                    # Используем tqdm для отображения прогресса
+                    for future in tqdm(
+                        futures,
+                        total=len(uncached_args),
+                        desc="Evaluating models"
+                    ):
+                        try:
+                            # Ждем результат с таймаутом
+                            result = future.result(timeout=300)  # 5 минут таймаут
+                            if result:
+                                self.results[f"{result['model_name']}_{result['timestamp']}"] = result
+                        except TimeoutError:
+                            print(f"\nWarning: Evaluation timed out for one of the models")
+                        except Exception as e:
+                            print(f"\nError during evaluation: {str(e)}")
+            
+            finally:
+                # Восстанавливаем оригинальный обработчик SIGINT
+                signal.signal(signal.SIGINT, original_sigint)
+                
+                # Сохраняем промежуточные результаты
+                self._save_results()
         
-        # Загружаем результаты для всех моделей (включая кэшированные)
-        for model_name, system_prompt in eval_args:
-            self.evaluate_model(model_name, system_prompt)
+        # Сохраняем финальные результаты
+        self._save_results()
 
     def generate_markdown(self) -> str:
         """Генерирует markdown с результатами"""
@@ -229,30 +308,45 @@ class Leaderboard:
         md += f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         
         # Заголовок таблицы
-        md += "| Model | Score | Tokens Used | System Prompt | Evaluation Time | Details |\n"
-        md += "|-------|--------|-------------|---------------|----------------|----------|\n"
+        md += "| Model | Score | Tokens Used | System Prompt | Evaluation Time | Details | Model Info |\n"
+        md += "|-------|--------|-------------|---------------|----------------|----------|------------|\n"
+        
+        # Группируем результаты по моделям и берем лучший результат для каждой
+        model_best_results = {}
+        for result in self.results.values():
+            model_name = result['model_name']
+            if (model_name not in model_best_results or 
+                result['score'] > model_best_results[model_name]['score']):
+                model_best_results[model_name] = result
         
         # Сортируем результаты по score
         sorted_results = sorted(
-            self.results.values(),
+            model_best_results.values(),
             key=lambda x: x['score'],
             reverse=True
         )
         
         # Добавляем строки таблицы
         for result in sorted_results:
+            model_name = result['model_name']
             system_prompt = result['system_prompt'] or 'None'
             if len(system_prompt) > 30:
                 system_prompt = system_prompt[:27] + "..."
                 
-            details_link = f"[Details](details/{result['model_name']}/details_{result['timestamp']}.md)"
+            details_link = f"[Details](details/{model_name}/details_{result['timestamp']}.md)"
+            
+            # Добавляем ссылку на документацию модели если она есть
+            model_info = ""
+            if model_name in self.model_links:
+                model_info = f"[📚]({self.model_links[model_name]})"
                 
-            md += f"| {result['model_name']} "
+            md += f"| {model_name} "
             md += f"| {result['score']:.3f} "
-            md += f"| {result['total_tokens']} "
+            md += f"| {result.get('total_tokens', 0)} "
             md += f"| {system_prompt} "
             md += f"| {result['evaluation_time']:.1f}s "
-            md += f"| {details_link} |\n"
+            md += f"| {details_link} "
+            md += f"| {model_info} |\n"
             
         # Сохраняем markdown
         with open(self.output_dir / "leaderboard.md", 'w') as f:

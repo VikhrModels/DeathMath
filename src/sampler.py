@@ -77,7 +77,7 @@ class OaiSampler(SamplerBase):
             
             if self.debug:
                 print("\nDebug: Received response")
-                print(f"Response: {response.choices[0].message.content[:100]}...")
+                print(f"Response cutted to 100 chars: {response.choices[0].message.content[:100]}...")
             
             return response.choices[0].message.content
             
