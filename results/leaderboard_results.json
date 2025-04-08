@@ -1,0 +1,145 @@
+{
+  "gpt-4o-mini_20250407_174507": {
+    "model_name": "gpt-4o-mini",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 29.92428469657898,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250407_174507",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 5
+    }
+  },
+  "gpt-4o-mini_20250407_175252": {
+    "model_name": "gpt-4o-mini",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 20.09852361679077,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250407_175252",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 5
+    }
+  },
+  "gpt-4o-mini_20250407_175512": {
+    "model_name": "gpt-4o-mini",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 19.58692240715027,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250407_175512",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 5
+    }
+  },
+  "gpt-4o-mini_20250408_072324": {
+    "model_name": "gpt-4o-mini",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 22.82958173751831,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250408_072324",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 5
+    }
+  },
+  "gpt-4o-mini_20250408_072634": {
+    "model_name": "gpt-4o-mini",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 23.65204358100891,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250408_072634",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 5
+    }
+  },
+  "gpt-4o-mini_20250408_072833": {
+    "model_name": "gpt-4o-mini",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 22.307265281677246,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250408_072833",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 5
+    }
+  },
+  "gpt-4o_20250408_072858": {
+    "model_name": "gpt-4o",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 12.016074419021606,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250408_072858",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 5
+    }
+  },
+  "o3-mini-2025-01-31_20250408_072911": {
+    "model_name": "o3-mini-2025-01-31",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 14.841242551803589,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250408_072911",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 5
+    }
+  },
+  "gpt-4o-mini_20250408_073159": {
+    "model_name": "gpt-4o-mini",
+    "score": 0.2736842105263158,
+    "total_tokens": 0,
+    "evaluation_time": 609.128711938858,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250408_073159",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 190
+    }
+  },
+  "gpt-4o_20250408_074210": {
+    "model_name": "gpt-4o",
+    "score": 0.39473684210526316,
+    "total_tokens": 0,
+    "evaluation_time": 3282.2008817195892,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250408_074210",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 190
+    }
+  },
+  "o3-mini-2025-01-31_20250408_083654": {
+    "model_name": "o3-mini-2025-01-31",
+    "score": 0.4,
+    "total_tokens": 0,
+    "evaluation_time": 770.4286437034607,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250408_083654",
+    "config": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "num_examples": 190
+    }
+  }
+}
