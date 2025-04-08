@@ -3,11 +3,13 @@ bench_name: arena-hard-v0.1
 temperature: 0.0
 max_tokens: 2048
 debug: true
+num_examples: 190
 
 num_choices: 1
 
-# OpenAI API key
-api_key: ""
+
+# Ссылки на документацию моделей
+
 
 # a list of model to generate answers
 model_list:
@@ -19,19 +21,7 @@ model_list:
 
 
 # oai like format
-gigachat_lite:
-    model_name: GigaChat
-    endpoints:
-        - auth_token: ...
-    api_type: gigachat
-    parallel: 1
 
-gigachat_pro:
-    model_name: GigaChat-Pro
-    endpoints:
-        - auth_token: ...
-    api_type: gigachat
-    parallel: 1
 
 best_tgpt_checkpoint:
     model_name: './best_tgpt_checkpoint/'
@@ -41,44 +31,32 @@ best_tgpt_checkpoint:
     api_type: openai
     parallel: 6
 
-
-gpt-4-1106-preview:
-    model_name: gpt-4-1106-preview
+o3-mini-2025-01-31:
+    model_name: "o3-mini-2025-01-31"
     endpoints:
-        - api_base: https://api.openai.com/v1/
-          api_key: ...
+        - api_base: "https://openrouter.ai/api/v1"
+          api_key: ""
     api_type: openai
-    parallel: 3
+    parallel: 6
+    system_prompt: "You are a helpful math assistant. Answer in Russian."
+
+gpt-4o:
+    model_name: "gpt-4o"
+    endpoints:
+        - api_base: "https://openrouter.ai/api/v1"
+          api_key: ""
+    api_type: openai
+    parallel: 6
+    system_prompt: "You are a helpful math assistant. Answer in Russian."
+
 
 gpt-4o-mini:
-    model_name: gpt-4o-mini
+    model_name: "gpt-4o-mini"
     endpoints:
-        - api_base: https://api.openai.com/v1/
-          api_key: ...
+        - api_base: "https://openrouter.ai/api/v1"
+          api_key: ""
     api_type: openai
     parallel: 6
+    system_prompt: "You are a helpful math assistant. Answer in Russian."
 
-gpt-3.5-turbo-0125:
-    model_name: gpt-3.5-turbo-0125
-    endpoints:
-        - api_base: https://api.openai.com/v1/
-          api_key: ...
-    api_type: openai
-    parallel: 6
 
-gpt-3.5-turbo-1106:
-    model_name: gpt-3.5-turbo-1106
-    endpoints:
-        - api_base: https://api.openai.com/v1/
-          api_key: ...
-    api_type: openai
-    parallel: 6
-
-gpt-3.5-turbo-0125-ru-sys:
-    model_name: gpt-3.5-turbo-0125
-    endpoints:
-        - api_base: https://api.openai.com/v1/
-          api_key: ...
-    system_prompt: You are a helpful assistant. Answer on Russian.
-    api_type: openai
-    parallel: 6

@@ -1,5 +1,5 @@
 import yaml
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import time
 from pathlib import Path
 import json
@@ -7,30 +7,58 @@ from datetime import datetime
 from src.equality_checker import MathEqualityChecker
 from src.sampler import OaiSampler
 from src.mat_boy import RussianMathEval
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
+import hashlib
 
 class Leaderboard:
-    def __init__(self, config_path: str, output_dir: str = "results"):
+    def __init__(self, config_path: str, output_dir: str = "results", max_workers: int = 4):
         self.config_path = config_path
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.max_workers = max_workers
         
-        # Создаем директории для детальных результатов
+        # Создаем директории
         self.details_dir = self.output_dir / "details"
         self.details_dir.mkdir(exist_ok=True)
+        self.cache_dir = self.output_dir / "cache"
+        self.cache_dir.mkdir(exist_ok=True)
         
-        # Загружаем конфиг
+        # Загружаем конфиг и кэш
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
-            
-        # Получаем ссылки на документацию из конфига
         self.model_links = self.config.get('model_links', {})
-            
-        # Создаем equality checker
         self.equality_checker = MathEqualityChecker()
-        
-        # Загружаем результаты если есть
         self.results_file = self.output_dir / "leaderboard_results.json"
         self.results = self._load_results()
+        
+    def _get_cache_key(self, model_name: str, system_prompt: str | None) -> str:
+        """Генерирует ключ кэша на основе модели и промпта"""
+        # Собираем все параметры, влияющие на результат
+        cache_data = {
+            'model_name': model_name,
+            'system_prompt': system_prompt,
+            'num_examples': self.config.get('num_examples'),
+            'temperature': self.config.get('temperature'),
+            'max_tokens': self.config.get('max_tokens'),
+        }
+        # Создаем хэш из параметров
+        cache_str = json.dumps(cache_data, sort_keys=True)
+        return hashlib.md5(cache_str.encode()).hexdigest()
+
+    def _get_cached_result(self, cache_key: str) -> Dict | None:
+        """Получает результат из кэша если он есть"""
+        cache_file = self.cache_dir / f"{cache_key}.json"
+        if cache_file.exists():
+            with open(cache_file, 'r') as f:
+                return json.load(f)
+        return None
+
+    def _save_to_cache(self, cache_key: str, result: Dict):
+        """Сохраняет результат в кэш"""
+        cache_file = self.cache_dir / f"{cache_key}.json"
+        with open(cache_file, 'w') as f:
+            json.dump(result, f, indent=2)
 
     def _load_results(self) -> Dict:
         """Загружает существующие результаты"""
@@ -89,11 +117,21 @@ class Leaderboard:
             f.write(md)
 
     def evaluate_model(self, model_name: str, system_prompt: str = None) -> Dict[str, Any]:
-        """Оценивает одну модель"""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        """Оценивает одну модель с использованием кэша"""
+        # Генерируем ключ кэша
+        cache_key = self._get_cache_key(model_name, system_prompt)
         
-        # Получаем количество примеров из конфига
-        num_examples = self.config.get('num_examples', 5)  # По умолчанию 5 примеров
+        # Проверяем кэш
+        cached_result = self._get_cached_result(cache_key)
+        if cached_result is not None:
+            if self.config.get('debug'):
+                print(f"\nUsing cached result for {model_name}")
+            return cached_result
+
+        if self.config.get('debug'):
+            print(f"\nEvaluating {model_name} (not found in cache)")
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # Обновляем конфиг для текущей модели
         self.config['model_list'] = [model_name]
@@ -105,63 +143,84 @@ class Leaderboard:
         with open(temp_config_path, 'w') as f:
             yaml.dump(self.config, f)
             
-        # Инициализируем сэмплер и эвалюатор
-        sampler = OaiSampler(str(temp_config_path))
-        evaluator = RussianMathEval(
-            equality_checker=self.equality_checker,
-            num_examples=num_examples,  # Передаем количество примеров
-            debug=self.config.get('debug', False)
-        )
-        
-        # Замеряем время и токены
-        start_time = time.time()
-        total_tokens = 0
-        
-        # Запускаем оценку
-        results = evaluator(sampler)
-        
-        # Сохраняем детальные результаты
-        self._save_detailed_results(model_name, results.results, timestamp)
-        
-        # Собираем метрики
-        evaluation_time = time.time() - start_time
-        
-        # Получаем использованные токены
-        for result in results.results:
-            if hasattr(result, 'tokens'):
-                total_tokens += result.tokens
-        
-        # Формируем результат
-        model_result = {
-            "model_name": model_name,
-            "score": results.score,
-            "total_tokens": total_tokens,
-            "evaluation_time": evaluation_time,
-            "system_prompt": system_prompt,
-            "timestamp": timestamp,
-            "config": {
-                "temperature": self.config.get('temperature', 0.0),
-                "max_tokens": self.config.get('max_tokens', 2048),
-                "num_examples": self.config.get('num_examples', None)
+        try:
+            # Инициализируем сэмплер и эвалюатор
+            sampler = OaiSampler(str(temp_config_path))
+            evaluator = RussianMathEval(
+                equality_checker=self.equality_checker,
+                num_examples=self.config.get('num_examples', None),
+                debug=self.config.get('debug', False)
+            )
+            
+            start_time = time.time()
+            results = evaluator(sampler)
+            evaluation_time = time.time() - start_time
+            
+            # Сохраняем детальные результаты
+            self._save_detailed_results(model_name, results.results, timestamp)
+            
+            # Собираем метрики
+            total_tokens = sum(r.tokens for r in results.results if hasattr(r, 'tokens'))
+            
+            # Формируем результат
+            model_result = {
+                "model_name": model_name,
+                "score": results.score,
+                "total_tokens": total_tokens,
+                "evaluation_time": evaluation_time,
+                "system_prompt": system_prompt,
+                "timestamp": timestamp,
+                "cache_key": cache_key,
+                "config": {
+                    "temperature": self.config.get('temperature', 0.0),
+                    "max_tokens": self.config.get('max_tokens', 2048),
+                    "num_examples": self.config.get('num_examples', None)
+                }
             }
-        }
-        
-        # Сохраняем результат
-        self.results[f"{model_name}_{timestamp}"] = model_result
-        self._save_results()
-        
-        # Удаляем временный конфиг
-        temp_config_path.unlink()
-        
-        return model_result
+            
+            # Сохраняем в кэш и общие результаты
+            self._save_to_cache(cache_key, model_result)
+            self.results[f"{model_name}_{timestamp}"] = model_result
+            self._save_results()
+            
+            return model_result
+            
+        finally:
+            # Удаляем временный конфиг
+            temp_config_path.unlink(missing_ok=True)
 
     def evaluate_all_models(self, system_prompts: Dict[str, str] = None) -> None:
-        """Оценивает все модели из конфига"""
+        """Оценивает все модели из конфига параллельно с использованием кэша"""
         if system_prompts is None:
             system_prompts = {}
             
-        for model_name in self.config['model_list']:
-            system_prompt = system_prompts.get(model_name)
+        # Создаем список аргументов для параллельной обработки
+        eval_args = [
+            (model_name, system_prompts.get(model_name))
+            for model_name in self.config['model_list']
+        ]
+        
+        # Фильтруем только те модели, которых нет в кэше
+        uncached_args = []
+        for args in eval_args:
+            cache_key = self._get_cache_key(args[0], args[1])
+            if self._get_cached_result(cache_key) is None:
+                uncached_args.append(args)
+        
+        if uncached_args:
+            print(f"\nEvaluating {len(uncached_args)} uncached models...")
+            # Используем ThreadPoolExecutor только для некэшированных моделей
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                list(tqdm(
+                    executor.map(self.evaluate_model_parallel, uncached_args),
+                    total=len(uncached_args),
+                    desc="Evaluating models"
+                ))
+        else:
+            print("\nAll models found in cache!")
+        
+        # Загружаем результаты для всех моделей (включая кэшированные)
+        for model_name, system_prompt in eval_args:
             self.evaluate_model(model_name, system_prompt)
 
     def generate_markdown(self) -> str:
