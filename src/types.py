@@ -15,6 +15,8 @@ class SingleEvalResult:
     html: str | None = None
     convo: List[Dict[str, str]] | None = None  # sampled conversation
     tokens: int = 0
+    correct_answer: str | None = None
+    extracted_answer: str | None = None
 
 @dataclass
 class EvalResult:

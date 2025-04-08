@@ -18,7 +18,7 @@ class RussianMathEval(Eval):
     def __init__(
         self,
         equality_checker: SamplerBase,
-        num_examples: int | None = None,
+        num_examples: int | None = 5,
         n_repeats: int = 1,
         debug: bool = False,
     ):
@@ -29,11 +29,18 @@ class RussianMathEval(Eval):
             for row in dataset["train"]
         ]
         
-        if num_examples:
+        # Ограничиваем количество примеров
+        if num_examples and num_examples > 0:
             examples = examples[:num_examples]
+        else:
+            examples = examples[:5]  # По умолчанию берем 5 примеров
+            
         self.examples = examples * n_repeats
         self.equality_checker = equality_checker
         self.debug = debug
+
+        if self.debug:
+            print(f"Loaded {len(self.examples)} examples for evaluation")
 
     def __call__(self, sampler: SamplerBase) -> EvalResult:
         def fn(row: dict):
@@ -69,7 +76,13 @@ class RussianMathEval(Eval):
             )
             
             convo = prompt_messages + [dict(content=response_text, role="assistant")]
-            return SingleEvalResult(html=html, score=score, convo=convo)
+            return SingleEvalResult(
+                html=html, 
+                score=score, 
+                convo=convo,
+                correct_answer=row["Answer"],
+                extracted_answer=extracted_answer
+            )
 
         results = common.map_with_progress(fn, self.examples)
         return common.aggregate_results(results)

@@ -22,6 +22,9 @@ class Leaderboard:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
             
+        # Получаем ссылки на документацию из конфига
+        self.model_links = self.config.get('model_links', {})
+            
         # Создаем equality checker
         self.equality_checker = MathEqualityChecker()
         
@@ -89,6 +92,9 @@ class Leaderboard:
         """Оценивает одну модель"""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
+        # Получаем количество примеров из конфига
+        num_examples = self.config.get('num_examples', 5)  # По умолчанию 5 примеров
+        
         # Обновляем конфиг для текущей модели
         self.config['model_list'] = [model_name]
         if system_prompt is not None:
@@ -103,7 +109,7 @@ class Leaderboard:
         sampler = OaiSampler(str(temp_config_path))
         evaluator = RussianMathEval(
             equality_checker=self.equality_checker,
-            num_examples=self.config.get('num_examples', None),
+            num_examples=num_examples,  # Передаем количество примеров
             debug=self.config.get('debug', False)
         )
         
