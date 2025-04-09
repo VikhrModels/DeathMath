@@ -1,5 +1,5 @@
 import yaml
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Set
 import time
 from pathlib import Path
 import json
@@ -7,6 +7,7 @@ from datetime import datetime
 from src.equality_checker import MathEqualityChecker
 from src.sampler import OaiSampler
 from src.mat_boy import RussianMathEval
+from src.types import SingleEvalResult
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from tqdm import tqdm
 import hashlib
@@ -36,15 +37,15 @@ class Leaderboard:
         
     def _get_cache_key(self, model_name: str, system_prompt: str | None) -> str:
         """Генерирует ключ кэша на основе модели и промпта"""
-        # Собираем все параметры, влияющие на результат
+        # Используем безопасное имя модели для кэша
+        safe_model_name = model_name.replace('/', '_')
         cache_data = {
-            'model_name': model_name,
+            'model_name': safe_model_name,
             'system_prompt': system_prompt,
             'num_examples': self.config.get('num_examples'),
             'temperature': self.config.get('temperature'),
             'max_tokens': self.config.get('max_tokens'),
         }
-        # Создаем хэш из параметров
         cache_str = json.dumps(cache_data, sort_keys=True)
         return hashlib.md5(cache_str.encode()).hexdigest()
 
@@ -89,79 +90,45 @@ class Leaderboard:
         with open(self.results_file, 'w') as f:
             json.dump(self.results, f, indent=2)
 
-    def _save_detailed_results(self, model_name: str, results: List[Dict], timestamp: str):
-        """Сохраняет детальные результаты для каждого примера"""
-        model_dir = self.details_dir / model_name
+    def _save_detailed_results(self, model_name: str, results: List[SingleEvalResult], timestamp: str):
+        """Сохраняет детальные результаты для модели"""
+        # Создаем безопасное имя директории
+        safe_model_name = model_name.replace('/', '_')
+        model_dir = self.details_dir / safe_model_name
         model_dir.mkdir(exist_ok=True)
         
-        details = {
-            "timestamp": timestamp,
-            "model_name": model_name,
-            "examples": []
-        }
-        
-        for idx, result in enumerate(results):
-            example_details = {
-                "index": idx,
-                "task": result.convo[0]["content"],
-                "model_response": result.convo[1]["content"],
-                "correct_answer": result.correct_answer,
-                "extracted_answer": result.extracted_answer,
-                "score": result.score,
-                "tokens": result.tokens
-            }
-            details["examples"].append(example_details)
-            
-        # Сохраняем детальные результаты
-        with open(model_dir / f"details_{timestamp}.json", 'w', encoding='utf-8') as f:
-            json.dump(details, f, indent=2, ensure_ascii=False)
-            
-        # Генерируем markdown с детальными результатами
-        md = f"# Detailed Results for {model_name}\n\n"
-        md += f"Timestamp: {timestamp}\n\n"
-        
-        for example in details["examples"]:
-            md += f"## Example {example['index'] + 1}\n\n"
-            md += f"### Task\n{example['task']}\n\n"
-            md += f"### Model Response\n{example['model_response']}\n\n"
-            md += f"### Correct Answer\n{example['correct_answer']}\n\n"
-            md += f"### Extracted Answer\n{example['extracted_answer']}\n\n"
-            md += f"### Score\n{example['score']}\n\n"
-            md += f"### Tokens Used\n{example['tokens']}\n\n"
-            md += "---\n\n"
-            
-        with open(model_dir / f"details_{timestamp}.md", 'w', encoding='utf-8') as f:
-            f.write(md)
+        # Сохраняем результаты
+        details_file = model_dir / f"details_{timestamp}.json"
+        with open(details_file, 'w') as f:
+            json.dump(results, f, indent=2, default=lambda x: x.__dict__)
 
     def evaluate_model(self, model_name: str, system_prompt: str = None) -> Dict[str, Any]:
-        """Оценивает одну модель с использованием кэша"""
-        # Генерируем ключ кэша
+        """Оценивает одну модель"""
         cache_key = self._get_cache_key(model_name, system_prompt)
-        
-        # Проверяем кэш
         cached_result = self._get_cached_result(cache_key)
+        
         if cached_result is not None:
             if self.config.get('debug'):
                 print(f"\nUsing cached result for {model_name}")
             return cached_result
 
         if self.config.get('debug'):
-            print(f"\nEvaluating {model_name} (not found in cache)")
+            print(f"\nEvaluating {model_name}")
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_model_name = model_name.replace('/', '_')
         
-        # Обновляем конфиг для текущей модели
-        self.config['model_list'] = [model_name]
-        if system_prompt is not None:
-            self.config[model_name]['system_prompt'] = system_prompt
-            
         # Создаем временный конфиг
-        temp_config_path = self.output_dir / f"temp_config_{model_name}.yaml"
+        temp_config = self.config.copy()
+        temp_config['model_list'] = [model_name]
+        if system_prompt is not None:
+            temp_config[model_name]['system_prompt'] = system_prompt
+            
+        temp_config_path = self.output_dir / f"temp_config_{safe_model_name}.yaml"
         with open(temp_config_path, 'w') as f:
-            yaml.dump(self.config, f)
+            yaml.dump(temp_config, f)
             
         try:
-            # Инициализируем сэмплер и эвалюатор
             sampler = OaiSampler(str(temp_config_path))
             evaluator = RussianMathEval(
                 equality_checker=self.equality_checker,
@@ -176,34 +143,28 @@ class Leaderboard:
             # Сохраняем детальные результаты
             self._save_detailed_results(model_name, results.results, timestamp)
             
-            # Собираем метрики
             total_tokens = sum(r.tokens for r in results.results if hasattr(r, 'tokens'))
             
-            # Формируем результат
             model_result = {
-                "model_name": model_name,
+                "model_name": model_name,  # Сохраняем оригинальное имя
                 "score": results.score,
                 "total_tokens": total_tokens,
                 "evaluation_time": evaluation_time,
                 "system_prompt": system_prompt,
                 "timestamp": timestamp,
-                "cache_key": cache_key,
-                "config": {
-                    "temperature": self.config.get('temperature', 0.0),
-                    "max_tokens": self.config.get('max_tokens', 2048),
-                    "num_examples": self.config.get('num_examples', None)
-                }
+                "cache_key": cache_key
             }
             
-            # Сохраняем в кэш и общие результаты
+            # Сохраняем в кэш
             self._save_to_cache(cache_key, model_result)
+            
+            # Используем оригинальное имя модели для ключа результатов
             self.results[f"{model_name}_{timestamp}"] = model_result
             self._save_results()
             
             return model_result
             
         finally:
-            # Удаляем временный конфиг
             temp_config_path.unlink(missing_ok=True)
 
     def evaluate_model_parallel(self, args: tuple) -> Dict[str, Any]:
@@ -211,61 +172,59 @@ class Leaderboard:
         model_name, system_prompt = args
         return self.evaluate_model(model_name, system_prompt)
 
+    def _get_measured_models(self) -> Set[str]:
+        """Получает список уже измеренных моделей из кэша"""
+        measured_models = set()
+        if self.cache_dir.exists():
+            for cache_file in self.cache_dir.glob("*.json"):
+                with open(cache_file, 'r') as f:
+                    cached_data = json.load(f)
+                    measured_models.add(cached_data['model_name'])
+        return measured_models
+
     def evaluate_all_models(self, system_prompts: Dict[str, str] = None) -> None:
         """Оценивает все модели из конфига параллельно с использованием кэша"""
         if system_prompts is None:
             system_prompts = {}
             
-        # Сначала загрузим все существующие кэши
-        existing_caches = {}
-        if self.cache_dir.exists():
-            for cache_file in self.cache_dir.glob("*.json"):
-                with open(cache_file, 'r') as f:
-                    cached_data = json.load(f)
-                    model_name = cached_data['model_name']
-                    existing_caches[model_name] = cached_data
+        # Получаем список уже измеренных моделей
+        measured_models = self._get_measured_models()
         
-        if self.config.get('debug'):
-            print("\nDebug: Found existing cache files for models:", list(existing_caches.keys()))
+        # Получаем список всех моделей из конфига
+        config_models = set(self.config['model_list'])
         
-        # Создаем список аргументов для параллельной обработки
-        eval_args = [
-            (model_name, system_prompts.get(model_name))
-            for model_name in self.config['model_list']
-        ]
+        # Находим новые модели
+        new_models = config_models - measured_models
         
-        # Фильтруем только те модели, которых нет в кэше
-        uncached_args = []
-        cached_results = []
+        if new_models:
+            print(f"\nFound new models to evaluate: {', '.join(new_models)}")
         
-        for args in eval_args:
-            model_name, system_prompt = args
+        # Загружаем существующие кэши для всех моделей
+        for model_name in config_models:
+            if model_name in measured_models:
+                # Загружаем кэш для существующей модели
+                for cache_file in self.cache_dir.glob("*.json"):
+                    with open(cache_file, 'r') as f:
+                        cached_data = json.load(f)
+                        if cached_data['model_name'] == model_name:
+                            key = f"{model_name}_{cached_data['timestamp']}"
+                            self.results[key] = cached_data
+                            break
+        
+        # Оцениваем только новые модели
+        if new_models:
+            uncached_args = [
+                (model_name, system_prompts.get(model_name))
+                for model_name in new_models
+            ]
             
-            if model_name in existing_caches:
-                if self.config.get('debug'):
-                    print(f"Using existing cache for {model_name}")
-                cached_result = existing_caches[model_name]
-                cached_results.append(cached_result)
-                # Добавляем в общие результаты
-                key = f"{model_name}_{cached_result['timestamp']}"
-                self.results[key] = cached_result
-            else:
-                if self.config.get('debug'):
-                    print(f"No cache found for {model_name}")
-                uncached_args.append(args)
-        
-        if cached_results:
-            print(f"\nLoaded {len(cached_results)} models from cache")
-        
-        if uncached_args:
-            print(f"\nEvaluating {len(uncached_args)} uncached models...")
+            print(f"\nEvaluating {len(uncached_args)} new models...")
             
             def handle_sigint(signum, frame):
                 print("\nGracefully shutting down... Please wait for current evaluations to complete.")
                 executor.shutdown(wait=True)
                 sys.exit(0)
             
-            # Устанавливаем обработчик SIGINT
             original_sigint = signal.getsignal(signal.SIGINT)
             signal.signal(signal.SIGINT, handle_sigint)
             
@@ -276,30 +235,37 @@ class Leaderboard:
                         future = executor.submit(self.evaluate_model_parallel, args)
                         futures.append(future)
                     
-                    # Используем tqdm для отображения прогресса
                     for future in tqdm(
                         futures,
                         total=len(uncached_args),
-                        desc="Evaluating models"
+                        desc="Evaluating new models"
                     ):
                         try:
-                            # Ждем результат с таймаутом
-                            result = future.result(timeout=300)  # 5 минут таймаут
+                            result = future.result(timeout=300)
                             if result:
-                                self.results[f"{result['model_name']}_{result['timestamp']}"] = result
+                                key = f"{result['model_name']}_{result['timestamp']}"
+                                self.results[key] = result
+                                # Сразу сохраняем результат в кэш
+                                self._save_to_cache(self._get_cache_key(result['model_name'], 
+                                                                      result.get('system_prompt')), 
+                                                  result)
                         except TimeoutError:
                             print(f"\nWarning: Evaluation timed out for one of the models")
                         except Exception as e:
                             print(f"\nError during evaluation: {str(e)}")
             
             finally:
-                # Восстанавливаем оригинальный обработчик SIGINT
                 signal.signal(signal.SIGINT, original_sigint)
-                
-                # Сохраняем промежуточные результаты
                 self._save_results()
+        else:
+            print("\nNo new models to evaluate, using cached results")
         
-        # Сохраняем финальные результаты
+        # Проверяем, что все модели из конфига присутствуют в результатах
+        missing_models = config_models - set(result['model_name'] 
+                                           for result in self.results.values())
+        if missing_models:
+            print(f"\nWarning: Missing results for models: {', '.join(missing_models)}")
+        
         self._save_results()
 
     def generate_markdown(self) -> str:
