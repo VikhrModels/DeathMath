@@ -3,6 +3,8 @@ from typing import List, Dict
 import openai
 import time
 from .types import SamplerBase
+from gigachat import GigaChat
+from gigachat.models import Chat, Messages
 
 # Maximum number of API retries and sleep time between retries
 API_MAX_RETRY = 3
@@ -84,11 +86,7 @@ class OaiSampler(SamplerBase):
 
     def chat_completion_gigachat(self, model, messages, temperature, max_tokens):
         """Обработка запроса к GigaChat API"""
-        try:
-            from gigachat import GigaChat
-            from gigachat.models import Chat, Messages
-        except ImportError:
-            raise ImportError("Для работы с GigaChat необходимо установить пакет gigachat: pip install gigachat")
+
         
         # Создаем api_dict для GigaChat из унифицированных параметров
         api_dict = {
@@ -159,9 +157,46 @@ class OaiSampler(SamplerBase):
                 
                 if self.debug:
                     print("\nDebug: Received response")
-                    print(f"Response cutted to 100 chars: {response.choices[0].message.content[:100]}...")
+                    print(f"Response type: {type(response)}")
                 
-                return response.choices[0].message.content
+                try:
+                    # Стандартный путь для OpenAI API
+                    if hasattr(response, 'choices') and len(response.choices) > 0:
+                        if hasattr(response.choices[0], 'message') and hasattr(response.choices[0].message, 'content'):
+                            result = response.choices[0].message.content
+                            if self.debug:
+                                print(f"Response content (first 100 chars): {result[:100]}...")
+                            return result
+                    
+                    # Путь для словарного формата (некоторые API, включая OpenRouter)
+                    if isinstance(response, dict) and 'choices' in response:
+                        if len(response['choices']) > 0:
+                            if 'message' in response['choices'][0] and 'content' in response['choices'][0]['message']:
+                                result = response['choices'][0]['message']['content']
+                                if self.debug:
+                                    print(f"Response content from dict (first 100 chars): {result[:100]}...")
+                                return result
+                    
+                    # Если ничего не нашли, но есть response в строковом виде
+                    if isinstance(response, str):
+                        return response
+                    
+                    # Последняя попытка получить ответ
+                    if hasattr(response, 'content'):
+                        return response.content
+                    
+                    # Если все методы не сработали, возвращаем строку с ошибкой формата
+                    error_msg = f"Failed to extract response content. Response type: {type(response)}"
+                    if self.debug:
+                        print(error_msg)
+                        print(f"Response dump: {response}")
+                    return error_msg
+                    
+                except Exception as content_error:
+                    if self.debug:
+                        print(f"Error extracting content from response: {str(content_error)}")
+                    # Возвращаем сообщение об ошибке если не можем извлечь контент
+                    return f"Error extracting response content: {str(content_error)}"
             
         except Exception as e:
             error_msg = (

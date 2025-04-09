@@ -1,8 +1,6 @@
 import re
-from typing import Literal
-import pandas as pd
 from datasets import load_dataset
-from .common import check_equality, ANSWER_PATTERN, jinja_env, HTML_JINJA
+from .common import check_equality
 from .types import Eval, EvalResult, SamplerBase, SingleEvalResult
 from . import common
 
@@ -45,7 +43,7 @@ class RussianMathEval(Eval):
     def __call__(self, sampler: SamplerBase) -> EvalResult:
         def fn(row: dict):
             if self.debug:
-                print(f"\nDebug: Processing example")
+                print("\nDebug: Processing example")
                 print(f"Task: {row['task']}")
                 print(f"Expected answer: {row['Answer']}")
             
@@ -83,6 +81,43 @@ class RussianMathEval(Eval):
                 correct_answer=row["Answer"],
                 extracted_answer=extracted_answer
             )
+
+        results = common.map_with_progress(fn, self.examples)
+        return common.aggregate_results(results)
+
+class MathDemonEval(Eval):
+    def __init__(self, subset_name: str, num_examples: int | None = 5, debug: bool = False):
+        """Инициализация для оценки на подсетах MathDemon_Demidovich"""
+        # Загружаем датасет с указанным подсетом
+        dataset = load_dataset("Vikhrmodels/MathDemon_Demidovich", subset_name)
+        examples = [
+            {"task": row["task"], "Answer": row["short_answer"]}
+            for row in dataset["train"]
+        ]
+
+        # Ограничиваем количество примеров
+        if num_examples and num_examples > 0:
+            examples = examples[:num_examples]
+        else:
+            examples = examples[:5]  # По умолчанию берём 5 примеров
+
+        self.examples = examples
+        self.debug = debug
+
+        if self.debug:
+            print(f"Loaded {len(self.examples)} examples for subset {subset_name}")
+
+    def __call__(self, sampler: SamplerBase) -> EvalResult:
+        """Выполняет оценку на основе предоставленного сэмплера"""
+        def fn(row: dict):
+            # Здесь вызывается сэмплер для выполнения задачи
+            prediction = sampler.sample(row["task"])
+            return {
+                "task": row["task"],
+                "prediction": prediction,
+                "ground_truth": row["Answer"],
+                "is_correct": self.equality_checker(prediction, row["Answer"]),
+            }
 
         results = common.map_with_progress(fn, self.examples)
         return common.aggregate_results(results)
