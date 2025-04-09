@@ -1,7 +1,5 @@
 import yaml
 from src.equality_checker import MathEqualityChecker
-from src.sampler import OaiSampler
-from src.mat_boy import RussianMathEval
 from src.leaderboard import Leaderboard
 import argparse
 from pathlib import Path

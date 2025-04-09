@@ -1,7 +1,13 @@
 import yaml
-from typing import List, Dict, Any
+from typing import List, Dict
 import openai
+import time
 from .types import SamplerBase
+
+# Maximum number of API retries and sleep time between retries
+API_MAX_RETRY = 3
+API_RETRY_SLEEP = 2
+API_ERROR_OUTPUT = "Error during API call. Please try again."
 
 class OaiSampler(SamplerBase):
     def __init__(self, config_path: str):
@@ -13,28 +19,48 @@ class OaiSampler(SamplerBase):
         model_name = self.config['model_list'][0]  # Берем первую модель из списка
         self.model_config = self.config.get(model_name, {})
         
-        # Получаем API ключ из конфига
-        self.api_key = self.config.get('api_key')  # Сначала проверяем общий ключ
-        if not self.api_key and 'endpoints' in self.model_config:
-            # Если нет общего ключа, ищем в endpoints модели
-            self.api_key = self.model_config['endpoints'][0].get('api_key')
+        # Определяем тип API
+        self.api_type = self.model_config.get('api_type', 'openai')
         
-        if not self.api_key:
-            raise ValueError(f"API key not found in config for model {model_name}")
-            
-        # Получаем base_url
-        self.base_url = None
+        # Получаем параметры из endpoints
         if 'endpoints' in self.model_config:
-            self.base_url = self.model_config['endpoints'][0].get('api_base')
-        
-        # Инициализируем клиент OpenAI
-        if self.base_url:
-            self.client = openai.OpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url
-            )
+            endpoint = self.model_config['endpoints'][0]
+            
+            # Унифицированное получение API ключа или credentials
+            self.api_key = endpoint.get('api_key', self.config.get('api_key'))
+            self.credentials = endpoint.get('credentials')
+            
+            # Унифицированное получение base_url
+            self.base_url = endpoint.get('api_base', endpoint.get('base_url'))
+            
+            # Дополнительные параметры для GigaChat
+            self.scope = endpoint.get('scope', 'GIGACHAT_API_CORP')
+            self.profanity_check = endpoint.get('profanity_check', True)
+            self.timeout = endpoint.get('timeout', 60.0)
         else:
-            self.client = openai.OpenAI(api_key=self.api_key)
+            self.api_key = self.config.get('api_key')
+            self.credentials = None
+            self.base_url = None
+            self.scope = 'GIGACHAT_API_CORP'
+            self.profanity_check = True
+            self.timeout = 60.0
+        
+        # Проверка наличия необходимых учетных данных
+        if self.api_type == 'openai' and not self.api_key:
+            raise ValueError(f"API key not found in config for model {model_name}")
+        elif self.api_type == 'gigachat' and not self.credentials:
+            raise ValueError(f"Credentials not found in config for model {model_name}")
+        
+        # Инициализируем клиент OpenAI если нужно
+        self.client = None
+        if self.api_type == 'openai':
+            if self.base_url:
+                self.client = openai.OpenAI(
+                    api_key=self.api_key,
+                    base_url=self.base_url
+                )
+            else:
+                self.client = openai.OpenAI(api_key=self.api_key)
         
         self.model_name = self.model_config.get('model_name', model_name)
         self.temperature = self.config.get('temperature', 0.0)
@@ -43,20 +69,67 @@ class OaiSampler(SamplerBase):
         self.debug = self.config.get('debug', False)
 
         if self.debug:
-            print(f"\nDebug: Initialized OaiSampler")
+            print("\nDebug: Initialized OaiSampler")
             print(f"Model: {self.model_name}")
+            print(f"API Type: {self.api_type}")
             print(f"Base URL: {self.base_url}")
-            print(f"API Key: {self.api_key[:8]}...")
+            if self.api_key:
+                print(f"API Key: {self.api_key[:8]}...")
+            elif self.credentials:
+                print(f"Using credentials for {self.api_type}")
 
     def _pack_message(self, content: str, role: str = "user") -> Dict[str, str]:
         """Упаковывает сообщение в формат для API"""
         return {"role": role, "content": content}
+
+    def chat_completion_gigachat(self, model, messages, temperature, max_tokens):
+        """Обработка запроса к GigaChat API"""
+        try:
+            from gigachat import GigaChat
+            from gigachat.models import Chat, Messages
+        except ImportError:
+            raise ImportError("Для работы с GigaChat необходимо установить пакет gigachat: pip install gigachat")
+        
+        # Создаем api_dict для GigaChat из унифицированных параметров
+        api_dict = {
+            'credentials': self.credentials,
+            'base_url': self.base_url,
+            'scope': self.scope,
+            'profanity_check': self.profanity_check,
+            'timeout': self.timeout
+        }
+        
+        client = GigaChat(model=model, verify_ssl_certs=False, **api_dict)
+        
+        # Настраиваем параметры для GigaChat
+        top_p = 1
+        if temperature == 0:
+            temperature = 1
+            top_p = 0
+
+        # Преобразуем сообщения в формат GigaChat
+        giga_messages = [Messages.parse_obj(m) for m in messages]
+        chat = Chat(messages=giga_messages, max_tokens=max_tokens, temperature=temperature, top_p=top_p)
+        
+        output = API_ERROR_OUTPUT
+        for _ in range(API_MAX_RETRY):
+            try:
+                response = client.chat(chat)
+                output = response.choices[0].message.content
+                break
+            except Exception as e:
+                if self.debug:
+                    print(f"GigaChat API error: {type(e)} {str(e)}")
+                time.sleep(API_RETRY_SLEEP)
+        
+        return output
 
     def __call__(self, messages: List[Dict[str, str]]) -> str:
         """Отправляет запрос к API и возвращает ответ"""
         if self.debug:
             print("\nDebug: Sending request to API")
             print(f"Model: {self.model_name}")
+            print(f"API Type: {self.api_type}")
             print("Messages:")
             for msg in messages:
                 print(f"{msg['role']}: {msg['content'][:100]}...")
@@ -68,26 +141,38 @@ class OaiSampler(SamplerBase):
             ] + messages
         
         try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens
-            )
-            
-            if self.debug:
-                print("\nDebug: Received response")
-                print(f"Response cutted to 100 chars: {response.choices[0].message.content[:100]}...")
-            
-            return response.choices[0].message.content
+            # Обработка в зависимости от типа API
+            if self.api_type == 'gigachat':
+                return self.chat_completion_gigachat(
+                    model=self.model_name, 
+                    messages=messages, 
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens
+                )
+            else:  # openai API по умолчанию
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens
+                )
+                
+                if self.debug:
+                    print("\nDebug: Received response")
+                    print(f"Response cutted to 100 chars: {response.choices[0].message.content[:100]}...")
+                
+                return response.choices[0].message.content
             
         except Exception as e:
             error_msg = (
                 f"\nError during API call:"
                 f"\nModel: {self.model_name}"
+                f"\nAPI Type: {self.api_type}"
                 f"\nBase URL: {self.base_url}"
-                f"\nAPI Key (first 8 chars): {self.api_key[:8]}..."
-                f"\nError: {str(e)}"
             )
+            if self.api_key:
+                error_msg += f"\nAPI Key (first 8 chars): {self.api_key[:8]}..."
+            error_msg += f"\nError: {str(e)}"
+            
             print(error_msg)
-            raise Exception(error_msg) from e 
+            raise Exception(error_msg) from e

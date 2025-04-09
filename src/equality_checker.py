@@ -1,7 +1,6 @@
-from typing import Optional, Any
+from typing import Any
 import re
 from src.types import SamplerBase
-import numpy as np
 from fractions import Fraction
 from decimal import Decimal, getcontext, ROUND_HALF_UP
 
