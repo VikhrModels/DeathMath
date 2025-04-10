@@ -1,15 +1,15 @@
 import yaml
-from typing import List, Dict, Any, Tuple, Set
+from typing import List, Dict, Any, Set
 import time
 from pathlib import Path
 import json
 from datetime import datetime
 from src.equality_checker import MathEqualityChecker
 from src.sampler import OaiSampler
-from src.mat_boy import RussianMathEval
+from src.mat_boy import RussianMathEval, MathDemonEval
 from src.types import SingleEvalResult
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import hashlib
 import signal
 import sys
@@ -97,10 +97,52 @@ class Leaderboard:
         model_dir = self.details_dir / safe_model_name
         model_dir.mkdir(exist_ok=True)
         
-        # Сохраняем результаты
+        # Сохраняем результаты в JSON
         details_file = model_dir / f"details_{timestamp}.json"
-        with open(details_file, 'w') as f:
-            json.dump(results, f, indent=2, default=lambda x: x.__dict__)
+        with open(details_file, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2, default=lambda x: x.__dict__, ensure_ascii=False)
+            
+        # Создаем и сохраняем markdown-отчет
+        markdown_file = model_dir / f"details_{timestamp}.md"
+        markdown_content = self._generate_markdown_report(model_name, results, timestamp)
+        with open(markdown_file, 'w', encoding='utf-8') as f:
+            f.write(markdown_content)
+
+    def _generate_markdown_report(self, model_name: str, results: List[SingleEvalResult], timestamp: str) -> str:
+        """Генерирует markdown-отчет с детальными результатами для модели"""
+        md = f"# Detailed Results for {model_name}\n\n"
+        md += f"Timestamp: {timestamp}\n\n"
+        
+        for i, result in enumerate(results, 1):
+            md += f"## Example {i}\n\n"
+            
+            # Добавляем задачу и ответ модели из convo, если он есть
+            if hasattr(result, 'convo') and result.convo:
+                for message in result.convo:
+                    if message.get('role') == 'user':
+                        md += f"### Task\n{message.get('content', '')}\n\n"
+                    elif message.get('role') == 'assistant':
+                        md += f"### Model Response\n{message.get('content', '')}\n\n"
+            
+            # Добавляем правильный ответ
+            if hasattr(result, 'correct_answer') and result.correct_answer:
+                md += f"### Correct Answer\n{result.correct_answer}\n\n"
+            
+            # Добавляем извлеченный ответ
+            if hasattr(result, 'extracted_answer') and result.extracted_answer is not None:
+                md += f"### Extracted Answer\n{result.extracted_answer}\n\n"
+            
+            # Добавляем оценку
+            if hasattr(result, 'score') and result.score is not None:
+                md += f"### Score\n{result.score}\n\n"
+            
+            # Добавляем количество токенов
+            if hasattr(result, 'tokens'):
+                md += f"### Tokens Used\n{result.tokens}\n\n"
+            
+            md += "---\n\n"
+        
+        return md
 
     def evaluate_model(self, model_name: str, system_prompt: str = None) -> Dict[str, Any]:
         """Оценивает одну модель"""
@@ -250,7 +292,7 @@ class Leaderboard:
                                                                       result.get('system_prompt')), 
                                                   result)
                         except TimeoutError:
-                            print(f"\nWarning: Evaluation timed out for one of the models")
+                            print("\nWarning: Evaluation timed out for one of the models")
                         except Exception as e:
                             print(f"\nError during evaluation: {str(e)}")
             
@@ -319,6 +361,46 @@ class Leaderboard:
             f.write(md)
             
         return md
+
+    def evaluate_math_demon_subsets(self):
+        """Оценивает все подсеты из MathDemon_Demidovich"""
+        subsets = [
+            "Approximation_by_Polynomials",
+            "Continuous_Functions",
+            "Convex_Functions",
+            "Differentiation",
+            "Improper_Integrals",
+            "Infinite_Series",
+            "Integration",
+            "Sequences_and_Limits",
+            "Series_of_Functions",
+        ]
+
+        for subset in subsets:
+            print(f"\nEvaluating subset: {subset}")
+            evaluator = MathDemonEval(
+                subset_name=subset,
+                num_examples=self.config.get('num_examples', None),
+                debug=self.config.get('debug', False)
+            )
+
+            sampler = OaiSampler(self.config_path)
+            results = evaluator(sampler)
+
+            # Сохраняем результаты для каждого подсета
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            self._save_detailed_results(f"MathDemon_{subset}", results.results, timestamp)
+
+            # Добавляем результаты в общий leaderboard
+            self.results[f"MathDemon_{subset}_{timestamp}"] = {
+                "model_name": f"MathDemon_{subset}",
+                "score": results.score,
+                "total_tokens": sum(r.tokens for r in results.results if hasattr(r, 'tokens')),
+                "evaluation_time": results.evaluation_time,
+                "timestamp": timestamp
+            }
+
+        self._save_results()
 
 def main():
     # Пример использования
