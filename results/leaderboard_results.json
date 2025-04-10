@@ -1,145 +1,62 @@
 {
-  "gpt-4o-mini_20250407_174507": {
+  "gpt-4o-mini_20250408_115501": {
     "model_name": "gpt-4o-mini",
-    "score": 0.4,
+    "score": 0.3105263157894737,
     "total_tokens": 0,
-    "evaluation_time": 29.92428469657898,
+    "evaluation_time": 682.1840555667877,
     "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250407_174507",
+    "timestamp": "20250408_115501",
+    "cache_key": "72d12b409d52034dc2118536da9954f6",
     "config": {
       "temperature": 0.0,
       "max_tokens": 2048,
-      "num_examples": 5
+      "num_examples": 190
     }
   },
-  "gpt-4o-mini_20250407_175252": {
-    "model_name": "gpt-4o-mini",
-    "score": 0.4,
-    "total_tokens": 0,
-    "evaluation_time": 20.09852361679077,
-    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250407_175252",
-    "config": {
-      "temperature": 0.0,
-      "max_tokens": 2048,
-      "num_examples": 5
-    }
-  },
-  "gpt-4o-mini_20250407_175512": {
-    "model_name": "gpt-4o-mini",
-    "score": 0.4,
-    "total_tokens": 0,
-    "evaluation_time": 19.58692240715027,
-    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250407_175512",
-    "config": {
-      "temperature": 0.0,
-      "max_tokens": 2048,
-      "num_examples": 5
-    }
-  },
-  "gpt-4o-mini_20250408_072324": {
-    "model_name": "gpt-4o-mini",
-    "score": 0.4,
-    "total_tokens": 0,
-    "evaluation_time": 22.82958173751831,
-    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250408_072324",
-    "config": {
-      "temperature": 0.0,
-      "max_tokens": 2048,
-      "num_examples": 5
-    }
-  },
-  "gpt-4o-mini_20250408_072634": {
-    "model_name": "gpt-4o-mini",
-    "score": 0.4,
-    "total_tokens": 0,
-    "evaluation_time": 23.65204358100891,
-    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250408_072634",
-    "config": {
-      "temperature": 0.0,
-      "max_tokens": 2048,
-      "num_examples": 5
-    }
-  },
-  "gpt-4o-mini_20250408_072833": {
-    "model_name": "gpt-4o-mini",
-    "score": 0.4,
-    "total_tokens": 0,
-    "evaluation_time": 22.307265281677246,
-    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250408_072833",
-    "config": {
-      "temperature": 0.0,
-      "max_tokens": 2048,
-      "num_examples": 5
-    }
-  },
-  "gpt-4o_20250408_072858": {
-    "model_name": "gpt-4o",
-    "score": 0.4,
-    "total_tokens": 0,
-    "evaluation_time": 12.016074419021606,
-    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250408_072858",
-    "config": {
-      "temperature": 0.0,
-      "max_tokens": 2048,
-      "num_examples": 5
-    }
-  },
-  "o3-mini-2025-01-31_20250408_072911": {
+  "o3-mini-2025-01-31_20250408_121611": {
     "model_name": "o3-mini-2025-01-31",
-    "score": 0.4,
+    "score": 0.4421052631578947,
     "total_tokens": 0,
-    "evaluation_time": 14.841242551803589,
+    "evaluation_time": 595.1312313079834,
     "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250408_072911",
-    "config": {
-      "temperature": 0.0,
-      "max_tokens": 2048,
-      "num_examples": 5
-    }
-  },
-  "gpt-4o-mini_20250408_073159": {
-    "model_name": "gpt-4o-mini",
-    "score": 0.2736842105263158,
-    "total_tokens": 0,
-    "evaluation_time": 609.128711938858,
-    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250408_073159",
+    "timestamp": "20250408_121611",
+    "cache_key": "c3069ebe6a6df20ee7afddcd57115143",
     "config": {
       "temperature": 0.0,
       "max_tokens": 2048,
       "num_examples": 190
     }
   },
-  "gpt-4o_20250408_074210": {
+  "gpt-4o_20250408_115501": {
     "model_name": "gpt-4o",
-    "score": 0.39473684210526316,
+    "score": 0.3526315789473684,
     "total_tokens": 0,
-    "evaluation_time": 3282.2008817195892,
+    "evaluation_time": 515.0932981967926,
     "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250408_074210",
+    "timestamp": "20250408_115501",
+    "cache_key": "ad2ba5cc2fb867a73665a96e94d5cc2c",
     "config": {
       "temperature": 0.0,
       "max_tokens": 2048,
       "num_examples": 190
     }
   },
-  "o3-mini-2025-01-31_20250408_083654": {
-    "model_name": "o3-mini-2025-01-31",
-    "score": 0.4,
+  "meta-llama/llama-4-scout_20250409_073324": {
+    "model_name": "meta-llama/llama-4-scout",
+    "score": 0.3736842105263158,
     "total_tokens": 0,
-    "evaluation_time": 770.4286437034607,
+    "evaluation_time": 648.4644145965576,
     "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-    "timestamp": "20250408_083654",
-    "config": {
-      "temperature": 0.0,
-      "max_tokens": 2048,
-      "num_examples": 190
-    }
+    "timestamp": "20250409_073324",
+    "cache_key": "05f58add3bb4b44d37663446c7523747"
+  },
+  "deepseek/deepseek-chat-v3-0324_20250409_075941": {
+    "model_name": "deepseek/deepseek-chat-v3-0324",
+    "score": 0.1,
+    "total_tokens": 0,
+    "evaluation_time": 6813.402790546417,
+    "system_prompt": "You are a helpful math assistant. Answer in Russian.",
+    "timestamp": "20250409_075941",
+    "cache_key": "6e85baf11bd53872cf446f051cbd4db6"
   }
 }
