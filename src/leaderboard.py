@@ -272,29 +272,58 @@ class Leaderboard:
             
             try:
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                    futures = []
-                    for args in uncached_args:
-                        future = executor.submit(self.evaluate_model_parallel, args)
-                        futures.append(future)
+                    # Создаем futures для всех новых моделей
+                    futures = [
+                        executor.submit(self.evaluate_model_parallel, args)
+                        for args in uncached_args
+                    ]
                     
-                    for future in tqdm(
-                        futures,
-                        total=len(uncached_args),
-                        desc="Evaluating new models"
-                    ):
-                        try:
-                            result = future.result(timeout=300)
-                            if result:
-                                key = f"{result['model_name']}_{result['timestamp']}"
-                                self.results[key] = result
-                                # Сразу сохраняем результат в кэш
-                                self._save_to_cache(self._get_cache_key(result['model_name'], 
-                                                                      result.get('system_prompt')), 
-                                                  result)
-                        except TimeoutError:
-                            print("\nWarning: Evaluation timed out for one of the models")
-                        except Exception as e:
-                            print(f"\nError during evaluation: {str(e)}")
+                    # Создаем прогресс-бар с leave=True, чтобы он оставался после завершения
+                    pbar = tqdm(
+                        total=len(futures),
+                        desc="Evaluating new models",
+                        leave=True
+                    )
+                    
+                    # Обрабатываем каждый future по мере его завершения
+                    # вместо итерации по futures, которая не отражает реальное завершение
+                    completed = 0
+                    while completed < len(futures):
+                        # Проверяем статус каждого future
+                        for i, future in enumerate(futures):
+                            if future.done() and not hasattr(future, '_processed'):
+                                try:
+                                    result = future.result(timeout=1)
+                                    if result:
+                                        key = f"{result['model_name']}_{result['timestamp']}"
+                                        self.results[key] = result
+                                        # Сразу сохраняем результат в кэш
+                                        self._save_to_cache(
+                                            self._get_cache_key(
+                                                result['model_name'], 
+                                                result.get('system_prompt')
+                                            ), 
+                                            result
+                                        )
+                                    # Отмечаем future как обработанный
+                                    setattr(future, '_processed', True)
+                                    # Обновляем прогресс-бар только когда модель действительно завершена
+                                    completed += 1
+                                    pbar.update(1)
+                                except TimeoutError:
+                                    print("\nWarning: Evaluation timed out for one of the models")
+                                except Exception as e:
+                                    print(f"\nError during evaluation: {str(e)}")
+                                    # Отмечаем future как обработанный даже при ошибке
+                                    setattr(future, '_processed', True)
+                                    completed += 1
+                                    pbar.update(1)
+                        
+                        # Не нагружаем CPU проверкой статуса
+                        time.sleep(0.1)
+                    
+                    # Закрываем прогресс-бар
+                    pbar.close()
             
             finally:
                 signal.signal(signal.SIGINT, original_sigint)

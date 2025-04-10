@@ -196,7 +196,8 @@ def map_with_progress(fn: Callable, items: List[Any], max_workers: int = 4) -> L
         results = list(tqdm(
             executor.map(fn, items),
             total=len(items),
-            desc="Processing examples"
+            desc="Processing examples",
+            leave=False  # Добавляем этот параметр, чтобы прогресс-бар исчезал
         ))
     return results
 
