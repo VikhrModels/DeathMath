@@ -66,7 +66,11 @@ class OaiSampler(SamplerBase):
         
         self.model_name = self.model_config.get('model_name', model_name)
         self.temperature = self.config.get('temperature', 0.0)
-        self.max_tokens = self.config.get('max_tokens', 2048)
+        
+        # Получаем max_tokens из настроек конкретной модели, если он там есть
+        # Иначе используем общее значение из конфига или значение по умолчанию
+        self.max_tokens = self.model_config.get('max_tokens', self.config.get('max_tokens', 2048))
+        
         self.system_prompt = self.model_config.get('system_prompt', None)
         self.debug = self.config.get('debug', False)
 
@@ -86,7 +90,6 @@ class OaiSampler(SamplerBase):
 
     def chat_completion_gigachat(self, model, messages, temperature, max_tokens):
         """Обработка запроса к GigaChat API"""
-
         
         # Создаем api_dict для GigaChat из унифицированных параметров
         api_dict = {
@@ -110,20 +113,41 @@ class OaiSampler(SamplerBase):
         chat = Chat(messages=giga_messages, max_tokens=max_tokens, temperature=temperature, top_p=top_p)
         
         output = API_ERROR_OUTPUT
+        metadata = {'total_tokens': 0}
+        
         for _ in range(API_MAX_RETRY):
             try:
                 response = client.chat(chat)
                 output = response.choices[0].message.content
+                
+                # Извлекаем информацию о токенах
+                if hasattr(response, 'usage') and response.usage:
+                    metadata['prompt_tokens'] = getattr(response.usage, 'prompt_tokens', 0)
+                    metadata['completion_tokens'] = getattr(response.usage, 'completion_tokens', 0)
+                    metadata['total_tokens'] = getattr(response.usage, 'total_tokens', 0)
+                
+                if self.debug:
+                    print(f"Tokens used: {metadata['total_tokens']}")
+                
                 break
             except Exception as e:
                 if self.debug:
                     print(f"GigaChat API error: {type(e)} {str(e)}")
                 time.sleep(API_RETRY_SLEEP)
         
-        return output
+        return output, metadata
 
-    def __call__(self, messages: List[Dict[str, str]]) -> str:
-        """Отправляет запрос к API и возвращает ответ"""
+    def __call__(self, messages: List[Dict[str, str]], return_metadata: bool = False):
+        """Отправляет запрос к API и возвращает ответ
+        
+        Args:
+            messages: Список сообщений для отправки
+            return_metadata: Если True, возвращает также метаданные (например, использование токенов)
+            
+        Returns:
+            str или tuple: Если return_metadata=False, возвращает только текст ответа.
+                          Если return_metadata=True, возвращает кортеж (текст_ответа, метаданные)
+        """
         if self.debug:
             print("\nDebug: Sending request to API")
             print(f"Model: {self.model_name}")
@@ -141,12 +165,17 @@ class OaiSampler(SamplerBase):
         try:
             # Обработка в зависимости от типа API
             if self.api_type == 'gigachat':
-                return self.chat_completion_gigachat(
+                result, metadata = self.chat_completion_gigachat(
                     model=self.model_name, 
                     messages=messages, 
                     temperature=self.temperature,
                     max_tokens=self.max_tokens
                 )
+                
+                if return_metadata:
+                    return result, metadata
+                return result
+            
             else:  # openai API по умолчанию
                 response = self.client.chat.completions.create(
                     model=self.model_name,
@@ -159,6 +188,22 @@ class OaiSampler(SamplerBase):
                     print("\nDebug: Received response")
                     print(f"Response type: {type(response)}")
                 
+                # Инициализируем метаданные
+                metadata = {'total_tokens': 0}
+                
+                # Извлекаем информацию о токенах из разных типов ответов
+                if hasattr(response, 'usage'):
+                    metadata['prompt_tokens'] = getattr(response.usage, 'prompt_tokens', 0)
+                    metadata['completion_tokens'] = getattr(response.usage, 'completion_tokens', 0)
+                    metadata['total_tokens'] = getattr(response.usage, 'total_tokens', 0)
+                elif isinstance(response, dict) and 'usage' in response:
+                    metadata['prompt_tokens'] = response['usage'].get('prompt_tokens', 0)
+                    metadata['completion_tokens'] = response['usage'].get('completion_tokens', 0)
+                    metadata['total_tokens'] = response['usage'].get('total_tokens', 0)
+                
+                if self.debug and metadata['total_tokens'] > 0:
+                    print(f"Tokens used: {metadata['total_tokens']}")
+                
                 try:
                     # Стандартный путь для OpenAI API
                     if hasattr(response, 'choices') and len(response.choices) > 0:
@@ -166,6 +211,9 @@ class OaiSampler(SamplerBase):
                             result = response.choices[0].message.content
                             if self.debug:
                                 print(f"Response content (first 100 chars): {result[:100]}...")
+                            
+                            if return_metadata:
+                                return result, metadata
                             return result
                     
                     # Путь для словарного формата (некоторые API, включая OpenRouter)
@@ -175,14 +223,21 @@ class OaiSampler(SamplerBase):
                                 result = response['choices'][0]['message']['content']
                                 if self.debug:
                                     print(f"Response content from dict (first 100 chars): {result[:100]}...")
+                                
+                                if return_metadata:
+                                    return result, metadata
                                 return result
                     
                     # Если ничего не нашли, но есть response в строковом виде
                     if isinstance(response, str):
+                        if return_metadata:
+                            return response, metadata
                         return response
                     
                     # Последняя попытка получить ответ
                     if hasattr(response, 'content'):
+                        if return_metadata:
+                            return response.content, metadata
                         return response.content
                     
                     # Если все методы не сработали, возвращаем строку с ошибкой формата
@@ -190,13 +245,20 @@ class OaiSampler(SamplerBase):
                     if self.debug:
                         print(error_msg)
                         print(f"Response dump: {response}")
+                    
+                    if return_metadata:
+                        return error_msg, metadata
                     return error_msg
                     
                 except Exception as content_error:
                     if self.debug:
                         print(f"Error extracting content from response: {str(content_error)}")
                     # Возвращаем сообщение об ошибке если не можем извлечь контент
-                    return f"Error extracting response content: {str(content_error)}"
+                    error_msg = f"Error extracting response content: {str(content_error)}"
+                    
+                    if return_metadata:
+                        return error_msg, metadata
+                    return error_msg
             
         except Exception as e:
             error_msg = (
