@@ -100,13 +100,13 @@ class RussianMathEval(Eval):
 
 class MathDemonEval(Eval):
     def __init__(
-        self, subset_name: str, num_examples: int | None = 5, debug: bool = False
+        self, subset_name: str, num_examples: int | None = 1, debug: bool = False
     ):
         """Инициализация для оценки на подсетах MathDemon_Demidovich"""
         # Загружаем датасет с указанным подсетом
         dataset = load_dataset("Vikhrmodels/MathDemon_Demidovich", subset_name)
         examples = [
-            {"task": row["task"], "Answer": row["short_answer"]}
+            {"task": row["translated_conditions"], "Answer": row["translated_answers"]}
             for row in dataset["train"]
         ]
 
