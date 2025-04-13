@@ -42,7 +42,7 @@ MULTILINGUAL_ANSWER_REGEXES = [
     r"答案\s*：",
     r"答案\s*:",
     r"答\s*：",
-    r"答\s*:", 
+    r"答\s*:",
     r"答复\s*：",
     r"答曰\s*：",
     r"الإجابة:",
@@ -182,23 +182,24 @@ def aggregate_results(results: List[SingleEvalResult]) -> EvalResult:
     """Агрегирует результаты оценки"""
     total_score = sum(r.score for r in results if r.score is not None)
     count = sum(1 for r in results if r.score is not None)
-    
-    return EvalResult(
-        score=total_score / count if count > 0 else 0.0,
-        results=results
-    )
+
+    return EvalResult(score=total_score / count if count > 0 else 0.0, results=results)
 
 
-def map_with_progress(fn: Callable, items: List[Any], max_workers: int = 4) -> List[Any]:
+def map_with_progress(
+    fn: Callable, items: List[Any], max_workers: int = 4
+) -> List[Any]:
     """Параллельно применяет функцию к списку элементов с отображением прогресса"""
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = list(tqdm(
-            executor.map(fn, items),
-            total=len(items),
-            desc="Processing examples",
-            leave=False  # Добавляем этот параметр, чтобы прогресс-бар исчезал
-        ))
+        results = list(
+            tqdm(
+                executor.map(fn, items),
+                total=len(items),
+                desc="Processing examples",
+                leave=False,  # Добавляем этот параметр, чтобы прогресс-бар исчезал
+            )
+        )
     return results
 
 
@@ -221,7 +222,9 @@ def message_to_html(message: Message) -> str:
     Generate HTML snippet (inside a <div>) for a message.
     """
     return jinja_env.from_string(_message_template).render(
-        role=message["role"], content=message["content"], variant=message.get("variant", None)
+        role=message["role"],
+        content=message["content"],
+        variant=message.get("variant", None),
     )
 
 
@@ -309,7 +312,10 @@ def make_report_from_example_htmls(htmls: list[str]):
     """
     Create a standalone HTML report from a list of example htmls
     """
-    return jinja_env.from_string(_report_template).render(score=None, metrics={}, htmls=htmls)
+    return jinja_env.from_string(_report_template).render(
+        score=None, metrics={}, htmls=htmls
+    )
+
 
 def normalize_response(response: str) -> str:
     """
@@ -331,6 +337,7 @@ def normalize_response(response: str) -> str:
         .replace("{", "")
         .replace("\\boxed", "")
     )
+
 
 def normalize_extracted_answer(extracted_answer: str) -> str:
     return (
