@@ -1,7 +1,5 @@
 # Math Evaluation Leaderboard
 
-Last updated: 2025-04-13 21:23:05
-
 | Model | Combined Score | RussianMath Score | MathDemon Score | Tokens Used | System Prompt | Evaluation Time | Dataset | Details |
 |-------|---------------|------------------|----------------|-------------|---------------|----------------|---------|----------|
 | gpt-4o-mini | 0.321 | 0.321 | 0.173 | 251078 | Вы - полезный помощник по м... | 950.2s | RussianMath, MathDemon | [RussianMath](details/gpt-4o-mini/details_20250413_204220.md), [MathDemon](details/gpt-4o-mini/details_20250413_205901.md) |
@@ -54,3 +52,4 @@ Last updated: 2025-04-13 21:23:05
 | └─ Integration | - | - | 0.000 | 424 | - | 18.9s | MathDemon/Integration | [Details](details/GigaChat-2/details_20250413_205715.md) |
 | └─ Sequences_and_Limits | - | - | 0.000 | 4084 | - | 8.6s | MathDemon/Sequences_and_Limits | [Details](details/GigaChat-2/details_20250413_205804.md) |
 | └─ Series_of_Functions | - | - | 0.000 | 3575 | - | 15.7s | MathDemon/Series_of_Functions | [Details](details/GigaChat-2/details_20250413_205843.md) |
+=======
