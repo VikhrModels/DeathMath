@@ -1,4 +1,4 @@
-# Deathmath benchmark, most codebase from openai simpleeval
+# DOOM Deadly Olympiad of Math, most codebase from openai simpleeval
 
 
 === LEADERBOARD ===
