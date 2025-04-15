@@ -33,7 +33,7 @@ o3-mini-2025-01-31:
     model_name: "o3-mini-2025-01-31"
     endpoints:
         - api_base: "https://openrouter.ai/api/v1"
-          api_key: "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"
+          api_key: ""
     api_type: openai
     parallel: 6
     system_prompt: "You are a helpful math assistant. Answer in Russian."
@@ -43,7 +43,7 @@ gpt-4o:
     model_name: "gpt-4o"
     endpoints:
         - api_base: "https://openrouter.ai/api/v1"
-          api_key: "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"
+          api_key: ""
     api_type: openai
     parallel: 6
     system_prompt: "You are a helpful math assistant. Answer in Russian."
@@ -53,7 +53,7 @@ gpt-4o-mini:
     model_name: "gpt-4o-mini"
     endpoints:
         - api_base: "https://openrouter.ai/api/v1"
-          api_key: "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"
+          api_key: ""
     api_type: openai
     parallel: 6
     system_prompt: "You are a helpful math assistant. Answer in Russian."
