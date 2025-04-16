@@ -386,9 +386,9 @@ class Leaderboard:
         md = "# Math Evaluation Leaderboard\n\n"
         md += f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
-        # Заголовок таблицы с расширенными полями
-        md += "| Model | Combined Score | RussianMath Score | MathDemon Score | Tokens Used | System Prompt | Evaluation Time | Dataset | Details |\n"
-        md += "|-------|---------------|------------------|----------------|-------------|---------------|----------------|---------|----------|\n"
+        # Заголовок таблицы - убираем колонки для MathDemon
+        md += "| Model | RussianMath Score | Tokens Used | System Prompt | Evaluation Time | Details |\n"
+        md += "|-------|------------------|-------------|---------------|----------------|----------|\n"
 
         # Собираем данные по моделям для создания сводной таблицы
         model_data = {}
@@ -398,36 +398,21 @@ class Leaderboard:
             
             if model_name not in model_data:
                 model_data[model_name] = {
-                    "combined": None,
                     "russianmath": None,
-                    "mathdemon": None,
-                    "mathdemon_subsets": {},
                 }
             
             # Определяем тип результата по датасету
             dataset = result.get("dataset", "RussianMath")
-            subset = result.get("subset", None)
             
-            if dataset == "Combined":
-                model_data[model_name]["combined"] = result
-            elif dataset == "RussianMath":
+            if dataset == "RussianMath":
                 if not model_data[model_name]["russianmath"] or result["score"] > model_data[model_name]["russianmath"]["score"]:
                     model_data[model_name]["russianmath"] = result
-            elif dataset == "MathDemon_Demidovich":
-                if subset == "AllSubsets":
-                    model_data[model_name]["mathdemon"] = result
-                elif subset:
-                    model_data[model_name]["mathdemon_subsets"][subset] = result
         
-        # Сортируем модели по комбинированному скору (если доступен) или RussianMath скору
+        # Сортируем модели по RussianMath скору
         def get_sort_score(model_name):
             data = model_data[model_name]
-            if data["combined"]:
-                return data["combined"]["score"]
-            elif data["russianmath"]:
+            if data["russianmath"]:
                 return data["russianmath"]["score"]
-            elif data["mathdemon"]:
-                return data["mathdemon"]["score"]
             return 0
         
         sorted_models = sorted(model_data.keys(), key=get_sort_score, reverse=True)
@@ -436,90 +421,37 @@ class Leaderboard:
         for model_name in sorted_models:
             data = model_data[model_name]
             
-            # Получаем данные для основной строки
-            combined_score = data["combined"]["score"] if data["combined"] else "-"
-            rm_score = data["russianmath"]["score"] if data["russianmath"] else "-" 
-            md_score = data["mathdemon"]["score"] if data["mathdemon"] else "-"
+            # Пропускаем модели без результатов RussianMath
+            if not data["russianmath"]:
+                continue
+                
+            rm_score = data["russianmath"]["score"]
             
             # Получаем общее количество токенов
-            total_tokens = 0
-            if data["russianmath"]:
-                total_tokens += data["russianmath"].get("total_tokens", 0)
-            if data["mathdemon"]:
-                total_tokens += data["mathdemon"].get("total_tokens", 0)
+            total_tokens = data["russianmath"].get("total_tokens", 0)
                 
-            # Получаем системный промпт (из любого доступного результата)
-            system_prompt = None
-            for result_type in ["combined", "russianmath", "mathdemon"]:
-                if data[result_type] and data[result_type].get("system_prompt"):
-                    system_prompt = data[result_type]["system_prompt"]
-                    break
+            # Получаем системный промпт
+            system_prompt = data["russianmath"].get("system_prompt", None)
             
             if system_prompt and len(system_prompt) > 30:
                 system_prompt = system_prompt[:27] + "..."
             elif not system_prompt:
                 system_prompt = "None"
             
-            # Получаем суммарное время оценки
-            eval_time = 0
-            if data["russianmath"]:
-                eval_time += data["russianmath"].get("evaluation_time", 0)
-            if data["mathdemon"]:
-                eval_time += data["mathdemon"].get("evaluation_time", 0)
+            # Получаем время оценки
+            eval_time = data["russianmath"].get("evaluation_time", 0)
                 
-            # Создаем ссылки на детали
-            details_links = []
-            if data["russianmath"]:
-                timestamp = data["russianmath"]["timestamp"]
-                details_links.append(f"[RussianMath](details/{model_name.replace('/', '_')}/details_{timestamp}.md)")
-            if data["mathdemon"]:
-                timestamp = data["mathdemon"]["timestamp"]
-                details_links.append(f"[MathDemon](details/{model_name.replace('/', '_')}/details_{timestamp}.md)")
-            
-            details = ", ".join(details_links)
-            
-            # Определяем датасеты для отображения
-            datasets = []
-            if data["russianmath"]:
-                datasets.append("RussianMath")
-            if data["mathdemon"]:
-                datasets.append("MathDemon")
-            dataset_str = ", ".join(datasets)
+            # Создаем ссылку на детали с префиксом "results/"
+            timestamp = data["russianmath"]["timestamp"]
+            details = f"[Details](results/details/{model_name.replace('/', '_')}/details_{timestamp}.md)"
             
             # Добавляем строку модели
             md += f"| {model_name} "
-            md += f"| {combined_score if isinstance(combined_score, str) else f'{combined_score:.3f}'} "
-            md += f"| {rm_score if isinstance(rm_score, str) else f'{rm_score:.3f}'} "
-            md += f"| {md_score if isinstance(md_score, str) else f'{md_score:.3f}'} "
+            md += f"| {rm_score:.3f} "
             md += f"| {total_tokens} "
             md += f"| {system_prompt} "
             md += f"| {eval_time:.1f}s "
-            md += f"| {dataset_str} "
             md += f"| {details} |\n"
-            
-            # Добавляем дополнительные строки для каждого подмножества MathDemon, если есть
-            if data["mathdemon_subsets"]:
-                # Сортируем подмножества по алфавиту
-                sorted_subsets = sorted(data["mathdemon_subsets"].keys())
-                
-                for subset in sorted_subsets:
-                    subset_result = data["mathdemon_subsets"][subset]
-                    subset_score = subset_result["score"]
-                    
-                    # Добавляем строку подмножества
-                    md += f"| └─ {subset} "
-                    md += f"| - "  # нет комбинированного скора для подмножества
-                    md += f"| - "  # нет RussianMath скора для подмножества
-                    md += f"| {subset_score:.3f} "
-                    md += f"| {subset_result.get('total_tokens', 0)} "
-                    md += f"| - "  # пропускаем системный промпт
-                    md += f"| {subset_result.get('evaluation_time', 0):.1f}s "
-                    md += f"| MathDemon/{subset} "
-                    
-                    # Ссылка на детали подмножества
-                    timestamp = subset_result["timestamp"]
-                    subset_details = f"[Details](details/{model_name.replace('/', '_')}/details_{timestamp}.md)"
-                    md += f"| {subset_details} |\n"
 
         # Сохраняем markdown в UTF-8
         with open(self.output_dir / "leaderboard.md", "w", encoding="utf-8") as f:
@@ -528,7 +460,7 @@ class Leaderboard:
         return md
 
     def evaluate_math_demon_subsets(self):
-        """Оценивает все подсеты из MathDemon_Dемidovich для всех моделей из конфига параллельно"""
+        """Оценивает все подсеты из MathDemon_Dемидovich для всех моделей из конфига параллельно"""
         subsets = [
             "Approximation_by_Polynomials",
             "Continuous_Functions",
@@ -541,7 +473,7 @@ class Leaderboard:
             "Series_of_Functions",
         ]
 
-        print(f"\nEvaluating MathDemon_Demidovich subsets ({len(subsets)} subsets)")
+        print(f"\nEvaluating MathDemon_Dемидovich subsets ({len(subsets)} subsets)")
         
         # Словарь для хранения результатов всех моделей по всем подмножествам
         all_results = {model: {} for model in self.config["model_list"]}
@@ -579,7 +511,7 @@ class Leaderboard:
                     "evaluation_time": total_time,
                     "system_prompt": self.config.get(model_name, {}).get("system_prompt"),
                     "timestamp": timestamp,
-                    "dataset": "MathDemon_Dемidovich",
+                    "dataset": "MathDemon_Dемидovich",
                     "subset": "AllSubsets"
                 }
                 
@@ -649,7 +581,7 @@ class Leaderboard:
                     "evaluation_time": evaluation_time,
                     "system_prompt": sampler.system_prompt,
                     "timestamp": timestamp,
-                    "dataset": "MathDemon_Dемidovich",
+                    "dataset": "MathDemon_Dемидovich",
                     "subset": subset_name,
                     "cache_key": cache_key
                 }
@@ -680,7 +612,7 @@ class Leaderboard:
         # Получаем список уже измеренных моделей
         measured_models = set()
         for key, result in self.results.items():
-            if (result.get("dataset") == "MathDemon_Dемidovich" and 
+            if (result.get("dataset") == "MathDemon_Dемидovich" and 
                 result.get("subset") == subset_name and
                 result.get("model_name") in self.config["model_list"]):
                 measured_models.add(result.get("model_name"))
@@ -696,7 +628,7 @@ class Leaderboard:
             for model_name in self.config["model_list"]:
                 for key, result in self.results.items():
                     if (result.get("model_name") == model_name and
-                        result.get("dataset") == "MathDemon_Dемidovich" and
+                        result.get("dataset") == "MathDemon_Dемидovich" and
                         result.get("subset") == subset_name):
                         results[model_name] = result
                         break
@@ -749,7 +681,7 @@ class Leaderboard:
         for model_name in measured_models:
             for key, result in self.results.items():
                 if (result.get("model_name") == model_name and
-                    result.get("dataset") == "MathDemon_Dемidovich" and
+                    result.get("dataset") == "MathDemon_Dемидovich" and
                     result.get("subset") == subset_name):
                     results[model_name] = result
                     break
@@ -757,88 +689,36 @@ class Leaderboard:
         return results
 
     def calculate_combined_scores(self):
-        """Вычисляет комбинированный скор для каждой модели по всем датасетам"""
-        print("\nCalculating combined scores across all datasets...")
+        """Вычисляет комбинированный скор для каждой модели"""
+        print("\nCalculating scores for models...")
         
-        # Сначала группируем результаты по моделям
+        # Группируем результаты по моделям
         model_results = {}
         
         for key, result in self.results.items():
             model_name = result["model_name"]
             
             # Пропускаем объединенные результаты, чтобы не дублировать
-            if "_AllSubsets_" in key or key.endswith("_Combined"):
+            if key.endswith("_Combined"):
                 continue
                 
             if model_name not in model_results:
                 model_results[model_name] = {
-                    "RussianMath": None,
-                    "MathDemon": None,
-                    "scores": []
+                    "RussianMath": None
                 }
             
-            # Добавляем результаты в зависимости от датасета
+            # Добавляем результаты только для RussianMath
             dataset = result.get("dataset", "RussianMath")
             
             if dataset == "RussianMath" and (model_results[model_name]["RussianMath"] is None or 
                                             result["score"] > model_results[model_name]["RussianMath"]["score"]):
                 # Для RussianMath берем лучший результат
                 model_results[model_name]["RussianMath"] = result
-                
-            elif dataset == "MathDemon_Dемidovich" and result.get("subset") == "AllSubsets":
-                # Для MathDemon берем результат по всем подмножествам
-                model_results[model_name]["MathDemon"] = result
-        
-        # Вычисляем скоры для каждой модели
-        for model_name, results in model_results.items():
-            scores = []
-            if results["RussianMath"]:
-                scores.append(results["RussianMath"]["score"])
-            if results["MathDemon"]:
-                scores.append(results["MathDemon"]["score"])
-            
-            results["scores"] = scores
-        
-        # Теперь для каждой модели вычисляем комбинированный скор
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        for model_name, results in model_results.items():
-            # Проверяем, что есть хотя бы один результат
-            if not results["scores"]:
-                continue
-                
-            # Вычисляем средний скор по всем датасетам
-            combined_score = sum(results["scores"]) / len(results["scores"])
-            
-            # Получаем общее количество токенов и время оценки
-            total_tokens = 0
-            total_evaluation_time = 0
-            
-            if results["RussianMath"]:
-                total_tokens += results["RussianMath"].get("total_tokens", 0)
-                total_evaluation_time += results["RussianMath"].get("evaluation_time", 0)
-                
-            if results["MathDemon"]:
-                total_tokens += results["MathDemon"].get("total_tokens", 0)
-                total_evaluation_time += results["MathDemon"].get("evaluation_time", 0)
-            
-            # Добавляем комбинированный результат
-            self.results[f"{model_name}_Combined_{timestamp}"] = {
-                "model_name": model_name,
-                "score": combined_score,
-                "total_tokens": total_tokens,
-                "evaluation_time": total_evaluation_time,
-                "system_prompt": results["RussianMath"].get("system_prompt") if results["RussianMath"] else 
-                                 results["MathDemon"].get("system_prompt") if results["MathDemon"] else None,
-                "timestamp": timestamp,
-                "dataset": "Combined",
-                "subset": None
-            }
-            
-            print(f"Model {model_name} combined score across all datasets: {combined_score:.3f}")
         
         # Сохраняем все результаты
         self._save_results()
+        
+        print("Scores calculated for all models")
 
 
 def main():

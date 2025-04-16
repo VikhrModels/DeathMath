@@ -5,6 +5,7 @@ import argparse
 from pathlib import Path
 import sys
 import os
+import shutil
 
 def main():
     # Установка кодировки вывода в UTF-8
@@ -16,9 +17,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Примеры использования:
-  python runner.py                        # Запустить оценку на всех датасетах (по умолчанию)
+  python runner.py                        # Запустить оценку (по умолчанию)
   python runner.py --dataset russianmath  # Запустить только на датасете RussianMath
-  python runner.py --dataset mathdemon    # Запустить только на датасете MathDemon_Demidovich
   python runner.py --no-cache             # Игнорировать кэш и переоценить все модели
   python runner.py --max-workers 8        # Использовать 8 параллельных потоков
         """
@@ -29,8 +29,8 @@ def main():
                       help='Путь к файлу конфигурации (по умолчанию: configs/run.yaml)')
     parser.add_argument('--no-cache', action='store_true',
                       help='Игнорировать кэш и переоценить все модели')
-    parser.add_argument('--dataset', choices=['all', 'russianmath', 'mathdemon'], default='all',
-                      help='Выбор датасета для оценки: all (все), russianmath, mathdemon (по умолчанию: all)')
+    parser.add_argument('--dataset', choices=['all', 'russianmath'], default='all',
+                      help='Выбор датасета для оценки: all (все), russianmath (по умолчанию: all)')
     args = parser.parse_args()
 
     # Загружаем конфиг
@@ -58,39 +58,63 @@ def main():
     }
     
     # Запуск оценки в зависимости от выбранного датасета
-    if args.dataset == 'all':
-        print("\nЗапуск оценки на всех датасетах (RussianMath и MathDemon_Demidovich)")
+    if args.dataset == 'all' or args.dataset == 'russianmath':
+        print("\nЗапуск оценки на датасете RussianMath")
         leaderboard.evaluate_all_models(system_prompts)
-        leaderboard.evaluate_math_demon_subsets()
-    elif args.dataset == 'russianmath':
-        print("\nЗапуск оценки только на датасете RussianMath")
-        leaderboard.evaluate_all_models(system_prompts)
-    elif args.dataset == 'mathdemon':
-        print("\nЗапуск оценки только на датасете MathDemon_Dемидович")
-        leaderboard.evaluate_math_demon_subsets()
     
-    # Вычисляем комбинированные оценки для моделей
-    if args.dataset == 'all':
-        print("\nВычисление комбинированной оценки по всем датасетам")
-        leaderboard.calculate_combined_scores()
+    # Получаем ширину терминала
+    terminal_width = shutil.get_terminal_size().columns
     
-    # Генерируем и выводим лидерборд
-    TERMINAL_WIDTH = 100  # Примерная ширина терминала
+    # Генерируем и выводим лидерборд с корректным форматированием
     header = " LEADERBOARD "
-    padding = "=" * ((TERMINAL_WIDTH - len(header)) // 2)
-    print(f"\n{padding}{header}{padding}\n")
+    padding = "=" * ((terminal_width - len(header)) // 2)
+    print(f"\n{padding}{header}{padding}")
     
+    # Генерируем markdown таблицу
     md = leaderboard.generate_markdown()
     
-    # Выводим упрощенную версию лидерборда в консоль
+    # Выводим красиво форматированную таблицу
     lines = md.split('\n')
-    for line in lines:
-        if line.startswith('|'):
-            # Убираем ссылки [Details](path) из вывода в консоль
-            cleaned_line = line.split('|')
-            if len(cleaned_line) > 5:  # Проверяем, что это строка с данными
-                cleaned_line = cleaned_line[:-1]  # Убираем последнюю колонку с ссылками
-            print('|'.join(cleaned_line))
+    table_lines = [line for line in lines if line.startswith('|')]
+    
+    if len(table_lines) >= 2:  # Есть заголовок и разделитель
+        header_line = table_lines[0]
+        separator_line = table_lines[1]
+        data_lines = table_lines[2:] if len(table_lines) > 2 else []
+        
+        # Анализируем ширину каждого столбца из заголовка
+        columns = header_line.split('|')
+        columns = [col.strip() for col in columns if col]  # Убираем пустые элементы
+        
+        # Находим максимальную ширину для каждого столбца
+        column_widths = [len(col) for col in columns]
+        
+        # Учитываем ширину данных в каждой строке
+        for line in data_lines:
+            cells = line.split('|')
+            cells = [cell.strip() for cell in cells if cell]
+            for i, cell in enumerate(cells):
+                if i < len(column_widths):
+                    column_widths[i] = max(column_widths[i], len(cell))
+        
+        # Форматируем и выводим заголовок
+        formatted_header = '| ' + ' | '.join(f"{col:<{column_widths[i]}}" for i, col in enumerate(columns)) + ' |'
+        print(f"\n{formatted_header}")
+        
+        # Форматируем и выводим разделитель
+        formatted_separator = '|-' + '-|-'.join('-' * width for width in column_widths) + '-|'
+        print(formatted_separator)
+        
+        # Форматируем и выводим данные
+        for line in data_lines:
+            cells = line.split('|')
+            cells = [cell.strip() for cell in cells if cell]
+            formatted_line = '| ' + ' | '.join(f"{cell:<{column_widths[i]}}" for i, cell in enumerate(cells)) + ' |'
+            print(formatted_line)
+    else:
+        # Если не смогли обработать таблицу, просто выводим как есть
+        for line in table_lines:
+            print(line)
 
     print(f"\nДетальные результаты сохранены в: {leaderboard.output_dir}")
 
