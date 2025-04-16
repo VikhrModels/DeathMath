@@ -1,4 +1,4 @@
-# Deathmath benchmark, most codebase from openai simpleeval
+# DOOM Deadly Olympiad of Math, most codebase from openai simpleeval
 
 Это бенчмарк для оценки качества языковых моделей на математических задачах.
 
@@ -67,5 +67,11 @@ configs/run.yaml
 
 ## Генерация таблицы лидеров
 
+
 После запуска оценки автоматически будет сгенерирована таблица лидеров. 
 Она сохраняется в `results/leaderboard.md`.
+=======
+```bash
+python leaderboard.py
+```
+
