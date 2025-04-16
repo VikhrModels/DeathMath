@@ -1,9 +1,6 @@
 # https://github.com/openai/simple-evals/blob/main/common.py
 # all creds to openai
-import os
-from collections import defaultdict
-from multiprocessing.pool import ThreadPool
-from typing import Any, List, Dict, Callable
+from typing import Any, List, Callable
 
 import io
 import jinja2
@@ -12,7 +9,7 @@ import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
-from .types import EvalResult, Message, SamplerBase, SingleEvalResult
+from .types import EvalResult, Message, SingleEvalResult
 
 QUERY_TEMPLATE_MULTICHOICE = """
 Answer the following multiple choice question. The last line of your response should be of the following format: 'Answer: $LETTER' (without quotes) where LETTER is one of ABCD. Think step by step before answering.
@@ -32,48 +29,48 @@ MULTILINGUAL_ANSWER_PATTERN_TEMPLATE = (
 )
 # All the different ways "Answer" is written in different languages
 MULTILINGUAL_ANSWER_REGEXES = [
-    "Answer\s*:",
-    "Answer\s*:​​​​​​",  # Korean invisible character
-    "উত্তর\s*:",
-    "उत्तर\s*:",
-    "উত্তরঃ",
-    "উত্তর\s*:",
-    "Antwort\s*:",
-    "답변\s*:",
-    "정답\s*:",
-    "답\s*:",
-    "答案\s*：",
-    "答案\s*:",
-    "答\s*：",
-    "答\s*:",
-    "答复\s*：",
-    "答曰\s*：",
-    "الإجابة:",
-    "الجواب:",
-    "إجابة:",
-    "الإجابة النهائية:",
-    "الإجابة الصحيحة:",
-    "الإجابة الصحيحة هي:",
-    "الإجابة هي:",
-    "الجواب النهائي:",
-    "Respuesta\s*:",
-    "Risposta\s*:",
-    "答え\s*:",
-    "答え\s*：",
-    "回答\s*:",
-    "回答\s*：",
-    "解答\s*:",
-    "Jawaban\s*:",
-    "Réponse\s*:",
-    "Resposta\s*:",
-    "Jibu\s*:",
-    "Idahun\s*:",
-    "Ìdáhùn\s*:",
-    "Idáhùn\s*:",
-    "Àmọ̀nà\s*:",
-    "Àdáhùn\s*:",
-    "Ànúgọ\s*:",
-    "Àṣàyàn\s*:",
+    r"Answer\s*:",
+    r"Answer\s*:​​​​​​",  # Korean invisible character
+    r"উত্তর\s*:",
+    r"उत्तर\s*:",
+    r"উত্তরঃ",
+    r"উত্তর\s*:",
+    r"Antwort\s*:",
+    r"답변\s*:",
+    r"정답\s*:",
+    r"답\s*:",
+    r"答案\s*：",
+    r"答案\s*:",
+    r"答\s*：",
+    r"答\s*:",
+    r"答复\s*：",
+    r"答曰\s*：",
+    r"الإجابة:",
+    r"الجواب:",
+    r"إجابة:",
+    r"الإجابة النهائية:",
+    r"الإجابة الصحيحة:",
+    r"الإجابة الصحيحة هي:",
+    r"الإجابة هي:",
+    r"الجواب النهائي:",
+    r"Respuesta\s*:",
+    r"Risposta\s*:",
+    r"答え\s*:",
+    r"答え\s*：",
+    r"回答\s*:",
+    r"回答\s*：",
+    r"解答\s*:",
+    r"Jawaban\s*:",
+    r"Réponse\s*:",
+    r"Resposta\s*:",
+    r"Jibu\s*:",
+    r"Idahun\s*:",
+    r"Ìdáhùn\s*:",
+    r"Idáhùn\s*:",
+    r"Àmọ̀nà\s*:",
+    r"Àdáhùn\s*:",
+    r"Ànúgọ\s*:",
+    r"Àṣàyàn\s*:",
 ]
 
 
@@ -185,22 +182,24 @@ def aggregate_results(results: List[SingleEvalResult]) -> EvalResult:
     """Агрегирует результаты оценки"""
     total_score = sum(r.score for r in results if r.score is not None)
     count = sum(1 for r in results if r.score is not None)
-    
-    return EvalResult(
-        score=total_score / count if count > 0 else 0.0,
-        results=results
-    )
+
+    return EvalResult(score=total_score / count if count > 0 else 0.0, results=results)
 
 
-def map_with_progress(fn: Callable, items: List[Any], max_workers: int = 4) -> List[Any]:
+def map_with_progress(
+    fn: Callable, items: List[Any], max_workers: int = 4
+) -> List[Any]:
     """Параллельно применяет функцию к списку элементов с отображением прогресса"""
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = list(tqdm(
-            executor.map(fn, items),
-            total=len(items),
-            desc="Processing examples"
-        ))
+        results = list(
+            tqdm(
+                executor.map(fn, items),
+                total=len(items),
+                desc="Processing examples",
+                leave=False,  # Добавляем этот параметр, чтобы прогресс-бар исчезал
+            )
+        )
     return results
 
 
@@ -223,7 +222,9 @@ def message_to_html(message: Message) -> str:
     Generate HTML snippet (inside a <div>) for a message.
     """
     return jinja_env.from_string(_message_template).render(
-        role=message["role"], content=message["content"], variant=message.get("variant", None)
+        role=message["role"],
+        content=message["content"],
+        variant=message.get("variant", None),
     )
 
 
@@ -311,7 +312,10 @@ def make_report_from_example_htmls(htmls: list[str]):
     """
     Create a standalone HTML report from a list of example htmls
     """
-    return jinja_env.from_string(_report_template).render(score=None, metrics={}, htmls=htmls)
+    return jinja_env.from_string(_report_template).render(
+        score=None, metrics={}, htmls=htmls
+    )
+
 
 def normalize_response(response: str) -> str:
     """
@@ -333,6 +337,7 @@ def normalize_response(response: str) -> str:
         .replace("{", "")
         .replace("\\boxed", "")
     )
+
 
 def normalize_extracted_answer(extracted_answer: str) -> str:
     return (

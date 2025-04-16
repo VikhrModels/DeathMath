@@ -1,0 +1,5 @@
+venv
+results/cache
+src/__pycache__
+configs/run.yaml
+results/details/
