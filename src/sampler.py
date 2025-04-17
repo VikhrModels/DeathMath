@@ -1,5 +1,5 @@
 import yaml
-from typing import List, Dict
+from typing import List, Dict, Tuple, Union
 import openai
 import time
 import re
@@ -12,10 +12,8 @@ from gigachat.models import Chat, Messages
 # Настройка логирования только в файл, без вывода в консоль
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('api_requests.log', mode='a')
-    ]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("api_requests.log", mode="a")],
 )
 logger = logging.getLogger("sampler")
 
@@ -46,22 +44,22 @@ class RateLimiter:
         self.delay = delay
         self.last_request_time = 0
         self.lock = threading.Lock()
-        
+
     def wait_if_needed(self):
         if self.delay <= 0:
             return
-            
+
         with self.lock:
             current_time = time.time()
             elapsed = current_time - self.last_request_time
-            
+
             # Если прошло меньше времени, чем задержка, ждем
             if elapsed < self.delay:
                 wait_time = self.delay - elapsed
                 if wait_time > 0.1:  # Не логируем очень короткие задержки
                     logger.debug(f"Waiting {wait_time:.2f}s before next API call")
                 time.sleep(wait_time)
-                
+
             # Обновляем время последнего запроса
             self.last_request_time = time.time()
 
@@ -70,7 +68,7 @@ class OaiSampler(SamplerBase):
     # Создаем словарь ограничителей скорости для разных моделей API
     _rate_limiters = {}
     _rate_limiters_lock = threading.Lock()
-    
+
     @classmethod
     def get_rate_limiter(cls, api_type, model_name, delay):
         """Получает ограничитель скорости для конкретного API и модели"""
@@ -79,7 +77,7 @@ class OaiSampler(SamplerBase):
             if key not in cls._rate_limiters:
                 cls._rate_limiters[key] = RateLimiter(delay)
             return cls._rate_limiters[key]
-    
+
     def __init__(self, config_path: str):
         # Загружаем конфиг
         with open(config_path, "r") as f:
@@ -142,12 +140,12 @@ class OaiSampler(SamplerBase):
 
         self.system_prompt = self.model_config.get("system_prompt", None)
         self.debug = self.config.get("debug", False)
-        
+
         # Получаем задержку между запросами для модели или используем общее значение
         self.request_delay = self.model_config.get(
             "request_delay", self.config.get("request_delay", 0.0)
         )
-        
+
         # Инициализируем ограничитель скорости для этой модели
         self.rate_limiter = self.get_rate_limiter(
             self.api_type, self.model_name, self.request_delay
@@ -167,19 +165,35 @@ class OaiSampler(SamplerBase):
         """Упаковывает сообщение в формат для API"""
         return {"role": role, "content": content}
 
-    def contains_error_patterns(self, text):
+    def contains_error_patterns(self, text: str) -> bool:
         """Проверяет наличие шаблонов ошибок в тексте"""
         if not text:
             return True  # Пустой ответ - тоже ошибка
-            
+
         for pattern in API_ERROR_PATTERNS:
             if re.search(pattern, text, re.IGNORECASE):
                 return True
         return False
 
-    def chat_completion_gigachat(self, model, messages, temperature, max_tokens):
-        """Обработка запроса к GigaChat API с улучшенным механизмом повторных попыток"""
+    def chat_completion_gigachat(
+        self,
+        model: str,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: int,
+    ) -> Tuple[str, Dict[str, int]]:
+        """
+        Обработка запроса к GigaChat API с улучшенным механизмом повторных попыток.
 
+        Args:
+            model: Название используемой модели GigaChat
+            messages: Список сообщений для контекста
+            temperature: Параметр температуры для генерации (случайность)
+            max_tokens: Максимальное количество токенов в ответе
+
+        Returns:
+            Кортеж (текст_ответа, метаданные)
+        """
         # Создаем api_dict для GigaChat из унифицированных параметров
         api_dict = {
             "credentials": self.credentials,
@@ -189,17 +203,17 @@ class OaiSampler(SamplerBase):
             "timeout": self.timeout,
         }
 
-        output = API_ERROR_OUTPUT
-        metadata = {"total_tokens": 0}
-        
+        output: str = API_ERROR_OUTPUT
+        metadata: Dict[str, int] = {"total_tokens": 0}
+
         # Записываем в лог информацию о запросе
         logger.info(f"Making API request to GigaChat [{model}]")
-        
+
         # Создаем клиент и настраиваем параметры только один раз перед циклом
         client = GigaChat(model=model, verify_ssl_certs=False, **api_dict)
-        
+
         # Настраиваем параметры для GigaChat
-        top_p = 1
+        top_p: float = 1
         if temperature == 0:
             temperature = 1
             top_p = 0
@@ -217,21 +231,27 @@ class OaiSampler(SamplerBase):
         for attempt in range(API_MAX_RETRY):
             # Прогрессивное увеличение времени между попытками
             if attempt > 0:
-                retry_delay = API_RETRY_SLEEP * (1 + attempt * 0.5)  # Увеличиваем задержку с каждой попыткой
-                logger.info(f"Retrying API request (attempt {attempt+1}/{API_MAX_RETRY}), waiting {retry_delay:.1f}s")
+                retry_delay: float = API_RETRY_SLEEP * (
+                    1 + attempt * 0.5
+                )  # Увеличиваем задержку с каждой попыткой
+                logger.info(
+                    f"Retrying API request (attempt {attempt + 1}/{API_MAX_RETRY}), waiting {retry_delay:.1f}s"
+                )
                 time.sleep(retry_delay)
-            
+
             try:
                 response = client.chat(chat)
                 output = response.choices[0].message.content
-                
+
                 # Проверяем содержимое ответа на наличие шаблонов ошибок
                 if self.contains_error_patterns(output):
                     error_msg = output[:100] + "..." if len(output) > 100 else output
-                    logger.warning(f"API returned error in response content: {error_msg}")
+                    logger.warning(
+                        f"API returned error in response content: {error_msg}"
+                    )
                     if attempt < API_MAX_RETRY - 1:
                         continue  # Повторяем запрос
-                
+
                 # Извлекаем информацию о токенах
                 if hasattr(response, "usage") and response.usage:
                     metadata["prompt_tokens"] = getattr(
@@ -243,16 +263,18 @@ class OaiSampler(SamplerBase):
                     metadata["total_tokens"] = getattr(
                         response.usage, "total_tokens", 0
                     )
-                
+
                 # Записываем в лог успешный запрос
-                logger.info(f"API request successful, tokens used: {metadata['total_tokens']}")
-                
+                logger.info(
+                    f"API request successful, tokens used: {metadata['total_tokens']}"
+                )
+
                 # Успешно получен ответ без ошибок в содержимом
                 break
-                
+
             except Exception as e:
                 logger.error(f"API request failed: {type(e).__name__}: {str(e)}")
-                
+
                 # Если это последняя попытка, фиксируем ошибку
                 if attempt == API_MAX_RETRY - 1:
                     logger.error(f"All {API_MAX_RETRY} retry attempts exhausted.")
@@ -260,14 +282,35 @@ class OaiSampler(SamplerBase):
 
         return output, metadata
 
-    def __call__(self, messages: List[Dict[str, str]], return_metadata: bool = False):
-        """Отправляет запрос к API и возвращает ответ"""
+    def __call__(
+        self, messages: List[Dict[str, str]], return_metadata: bool = False
+    ) -> Union[str, Tuple[str, Dict[str, int]]]:
+        """
+        Отправляет запрос к API и возвращает ответ.
+
+        Args:
+            messages: Список сообщений для диалога с моделью
+            return_metadata: Флаг для возврата метаданных (токены, задержки)
+
+        Returns:
+            При return_metadata=False: строка с ответом модели
+            При return_metadata=True: кортеж (ответ, метаданные)
+
+        Raises:
+            Exception: В случае ошибок при обращении к API
+        """
         # Ждем, если нужно соблюдать ограничение скорости запросов
         self.rate_limiter.wait_if_needed()
-        
+
         if self.debug:
-            msg_preview = messages[0]["content"][:50] + "..." if messages and len(messages[0]["content"]) > 50 else ""
-            logger.debug(f"Sending request to {self.model_name}, first message: {msg_preview}")
+            msg_preview = (
+                messages[0]["content"][:50] + "..."
+                if messages and len(messages[0]["content"]) > 50
+                else ""
+            )
+            logger.debug(
+                f"Sending request to {self.model_name}, first message: {msg_preview}"
+            )
 
         # Добавляем system prompt если он есть
         if self.system_prompt:
@@ -302,7 +345,7 @@ class OaiSampler(SamplerBase):
                     print(f"Response type: {type(response)}")
 
                 # Инициализируем метаданные
-                metadata = {"total_tokens": 0}
+                metadata: Dict[str, int] = {"total_tokens": 0}
 
                 # Извлекаем информацию о токенах из разных типов ответов
                 if hasattr(response, "usage"):
@@ -328,6 +371,8 @@ class OaiSampler(SamplerBase):
                     print(f"Tokens used: {metadata['total_tokens']}")
 
                 try:
+                    result: str = ""
+
                     # Стандартный путь для OpenAI API
                     if hasattr(response, "choices") and len(response.choices) > 0:
                         if hasattr(response.choices[0], "message") and hasattr(
@@ -407,5 +452,5 @@ class OaiSampler(SamplerBase):
                 error_msg += f"\nAPI Key (first 8 chars): {self.api_key[:8]}..."
             error_msg += f"\nError: {str(e)}"
 
-            print(error_msg)
+            logger.error(error_msg)
             raise Exception(error_msg) from e

@@ -1,6 +1,6 @@
 # https://github.com/openai/simple-evals/blob/main/common.py
 # all creds to openai
-from typing import Any, List, Callable
+from typing import Any, List, Callable, Dict, TypeVar, Union
 
 import io
 import jinja2
@@ -9,7 +9,10 @@ import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
-from .types import EvalResult, Message, SingleEvalResult
+from .types import EvalResult, SingleEvalResult
+
+T = TypeVar("T")
+R = TypeVar("R")
 
 QUERY_TEMPLATE_MULTICHOICE = """
 Answer the following multiple choice question. The last line of your response should be of the following format: 'Answer: $LETTER' (without quotes) where LETTER is one of ABCD. Think step by step before answering.
@@ -67,9 +70,9 @@ MULTILINGUAL_ANSWER_REGEXES = [
     r"Idahun\s*:",
     r"Ìdáhùn\s*:",
     r"Idáhùn\s*:",
-    r"Àmọ̀nà\s*:",
+    r"Àmọ̀nà\s*:",
     r"Àdáhùn\s*:",
-    r"Ànúgọ\s*:",
+    r"Ànúgọ\s*:",
     r"Àṣàyàn\s*:",
 ]
 
@@ -156,16 +159,48 @@ HTML_JINJA = """
 """
 
 
-def format_multichoice_question(row):
+def format_multichoice_question(row: Dict[str, str]) -> str:
+    """
+    Форматирует вопрос с множественным выбором из данных строки.
+
+    Args:
+        row: Словарь с данными вопроса, содержащий ключи Question, A, B, C, D
+
+    Returns:
+        Отформатированный текст вопроса
+    """
     return QUERY_TEMPLATE_MULTICHOICE.format(**row)
 
 
 def check_equality(equality_checker: Any, correct: str, predicted: str) -> bool:
-    """Проверяет равенство ответов с помощью equality checker"""
+    """
+    Проверяет равенство ответов с помощью equality checker.
+
+    Args:
+        equality_checker: Объект для проверки равенства математических выражений
+        correct: Правильный ответ
+        predicted: Предсказанный ответ
+
+    Returns:
+        True если ответы эквивалентны, иначе False
+    """
     return equality_checker(correct, predicted)
 
 
-def _compute_stat(values: list, stat: str):
+def _compute_stat(values: List[float], stat: str) -> float:
+    """
+    Вычисляет статистические показатели для списка значений.
+
+    Args:
+        values: Список числовых значений
+        stat: Тип статистики ('mean', 'std', 'min', 'max')
+
+    Returns:
+        Вычисленное статистическое значение
+
+    Raises:
+        ValueError: Если указан неизвестный тип статистики
+    """
     if stat == "mean":
         return np.mean(values)
     elif stat == "std":
@@ -179,7 +214,15 @@ def _compute_stat(values: list, stat: str):
 
 
 def aggregate_results(results: List[SingleEvalResult]) -> EvalResult:
-    """Агрегирует результаты оценки"""
+    """
+    Агрегирует список результатов оценки в один объект EvalResult.
+
+    Args:
+        results: Список результатов оценки для отдельных примеров
+
+    Returns:
+        Агрегированный результат оценки
+    """
     total_score = sum(r.score for r in results if r.score is not None)
     count = sum(1 for r in results if r.score is not None)
 
@@ -187,17 +230,26 @@ def aggregate_results(results: List[SingleEvalResult]) -> EvalResult:
 
 
 def map_with_progress(
-    fn: Callable, items: List[Any], max_workers: int = 4
-) -> List[Any]:
-    """Параллельно применяет функцию к списку элементов с отображением прогресса"""
-    results = []
+    fn: Callable[[T], R], items: List[T], max_workers: int = 4
+) -> List[R]:
+    """
+    Параллельно применяет функцию к элементам списка с отображением прогресса.
+
+    Args:
+        fn: Функция для применения к каждому элементу
+        items: Список элементов для обработки
+        max_workers: Максимальное количество параллельных потоков
+
+    Returns:
+        Список результатов применения функции
+    """
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = list(
             tqdm(
                 executor.map(fn, items),
                 total=len(items),
                 desc="Processing examples",
-                leave=False,  # Добавляем этот параметр, чтобы прогресс-бар исчезал
+                leave=False,
             )
         )
     return results
@@ -217,9 +269,15 @@ _message_template = """
 """
 
 
-def message_to_html(message: Message) -> str:
+def message_to_html(message: Dict[str, str]) -> str:
     """
-    Generate HTML snippet (inside a <div>) for a message.
+    Генерирует HTML-фрагмент для сообщения.
+
+    Args:
+        message: Словарь с ключами 'role', 'content' и опционально 'variant'
+
+    Returns:
+        HTML-представление сообщения
     """
     return jinja_env.from_string(_message_template).render(
         role=message["role"],
@@ -299,7 +357,13 @@ _report_template = """<!DOCTYPE html>
 
 def make_report(eval_result: EvalResult) -> str:
     """
-    Create a standalone HTML report from an EvalResult.
+    Создает автономный HTML-отчет из объекта EvalResult.
+
+    Args:
+        eval_result: Результат оценки
+
+    Returns:
+        HTML-строка с отчетом
     """
     return jinja_env.from_string(_report_template).render(
         score=eval_result.score,
@@ -308,9 +372,15 @@ def make_report(eval_result: EvalResult) -> str:
     )
 
 
-def make_report_from_example_htmls(htmls: list[str]):
+def make_report_from_example_htmls(htmls: List[str]) -> str:
     """
-    Create a standalone HTML report from a list of example htmls
+    Создает автономный HTML-отчет из списка HTML-фрагментов примеров.
+
+    Args:
+        htmls: Список HTML-фрагментов
+
+    Returns:
+        HTML-строка с отчетом
     """
     return jinja_env.from_string(_report_template).render(
         score=None, metrics={}, htmls=htmls
@@ -319,9 +389,17 @@ def make_report_from_example_htmls(htmls: list[str]):
 
 def normalize_response(response: str) -> str:
     """
-    Normalize the response by removing markdown and LaTeX formatting that may prevent a match.
-    """
+    Нормализует ответ, удаляя форматирование markdown и LaTeX.
 
+    Убирает специальные символы и форматирование, которые могут
+    помешать точному сопоставлению ответов.
+
+    Args:
+        response: Исходный ответ
+
+    Returns:
+        Нормализованный ответ
+    """
     return (
         response.replace("**", "")
         .replace("$\\boxed{", "")
@@ -340,6 +418,18 @@ def normalize_response(response: str) -> str:
 
 
 def normalize_extracted_answer(extracted_answer: str) -> str:
+    """
+    Нормализует извлеченный ответ, заменяя буквы на латинские эквиваленты.
+
+    Заменяет многоязычные символы на стандартные латинские буквы A-D
+    для вопросов с множественным выбором.
+
+    Args:
+        extracted_answer: Исходный ответ
+
+    Returns:
+        Нормализованный ответ
+    """
     return (
         # In arabic these are the letters used for A-D in multiple choice questions
         extracted_answer.replace("أ", " A")
@@ -360,7 +450,20 @@ def normalize_extracted_answer(extracted_answer: str) -> str:
     )
 
 
-def url_to_fileobj(url: str, binary=False) -> Any:
+def url_to_fileobj(url: str, binary: bool = False) -> Union[io.StringIO, io.BytesIO]:
+    """
+    Получает содержимое URL и возвращает его как файловый объект.
+
+    Args:
+        url: URL для загрузки
+        binary: Если True, возвращает бинарный файловый объект
+
+    Returns:
+        StringIO или BytesIO с содержимым URL
+
+    Raises:
+        requests.exceptions.RequestException: Если загрузка не удалась
+    """
     response = requests.get(url)
     response.raise_for_status()
     return io.BytesIO(response.content) if binary else io.StringIO(response.text)
