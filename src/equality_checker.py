@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Dict, Union
 import re
 from src.types import SamplerBase
 from fractions import Fraction
@@ -6,11 +6,49 @@ from decimal import Decimal, getcontext, ROUND_HALF_UP
 
 
 class MathEqualityChecker(SamplerBase):
-    def _pack_message(self, content: str, role: str = "user") -> dict:
+    """
+    Класс для проверки равенства математических выражений.
+
+    Выполняет нормализацию и сравнение математических выражений,
+    учитывая различные форматы записи чисел и выражений.
+    """
+
+    def __init__(self, debug: bool = False) -> None:
+        """
+        Инициализирует проверку равенства математических выражений.
+
+        Args:
+            debug: Режим отладки для вывода подробной информации
+        """
+        self.debug: bool = debug
+        # Устанавливаем точность для decimal
+        getcontext().prec = 3
+        self.EPSILON: Decimal = Decimal("0.001")  # Точность сравнения
+
+    def _pack_message(self, content: str, role: str = "user") -> Dict[str, str]:
+        """
+        Упаковывает содержимое в сообщение с указанной ролью.
+
+        Args:
+            content: Содержимое сообщения
+            role: Роль отправителя (по умолчанию "user")
+
+        Returns:
+            Словарь, представляющий сообщение
+        """
         return {"role": role, "content": content}
 
-    def _normalize_answer(self, answer: str) -> str:
-        """Нормализует ответ: удаляет все кроме цифр, операторов и точки"""
+    def _normalize_answer(self, answer: Union[str, int, float]) -> str:
+        """
+        Нормализует ответ: преобразует в строку и оставляет только цифры,
+        математические операторы и десятичный разделитель.
+
+        Args:
+            answer: Исходный ответ (строка или число)
+
+        Returns:
+            Нормализованная строка ответа
+        """
         if not isinstance(answer, str):
             answer = str(answer)
 
@@ -34,8 +72,56 @@ class MathEqualityChecker(SamplerBase):
 
         return answer
 
-    def __call__(self, expected: str, actual: str) -> bool:
-        """Проверяет равенство математических ответов"""
+    def _evaluate_math_expression(self, expr: str) -> Union[float, str]:
+        """
+        Вычисляет математическое выражение.
+
+        Безопасно вычисляет значение математического выражения,
+        обрабатывая простые дроби и проверяя наличие недопустимых символов.
+
+        Args:
+            expr: Строка с математическим выражением
+
+        Returns:
+            Результат вычисления как число или исходная строка в случае ошибки
+
+        Raises:
+            ValueError: Если в выражении содержатся недопустимые символы
+        """
+        try:
+            # Пробуем обработать дроби вида 1/10
+            if "/" in expr and not any(op in expr for op in ["+", "-", "*"]):
+                num, denom = expr.split("/")
+                return float(Fraction(int(num), int(denom)))
+
+            # Безопасное выполнение математического выражения
+            allowed_chars = set("0123456789.+-*/() ")
+            if not all(c in allowed_chars for c in expr):
+                raise ValueError(f"Invalid characters in expression: {expr}")
+
+            return float(eval(expr))
+
+        except Exception as e:
+            if self.debug:
+                print(f"Error evaluating expression '{expr}': {str(e)}")
+            return expr
+
+    def __call__(
+        self, expected: Union[str, int, float], actual: Union[str, int, float]
+    ) -> bool:
+        """
+        Проверяет равенство математических ответов.
+
+        Сравнивает два математических выражения или числа, нормализуя их
+        и вычисляя значения с заданной точностью.
+
+        Args:
+            expected: Ожидаемый (правильный) ответ
+            actual: Фактический ответ для проверки
+
+        Returns:
+            True если ответы эквивалентны, иначе False
+        """
         if expected is None or actual is None:
             return False
 
@@ -89,32 +175,3 @@ class MathEqualityChecker(SamplerBase):
             if self.debug:
                 print(f"Error during equality check: {str(e)}")
             return False
-
-    def _evaluate_math_expression(self, expr: str) -> Any:
-        """Вычисляет математическое выражение"""
-        try:
-            # Пробуем обработать дроби вида 1/10
-            if "/" in expr and not any(op in expr for op in ["+", "-", "*"]):
-                num, denom = expr.split("/")
-                return float(Fraction(int(num), int(denom)))
-
-            # Безопасное выполнение математического выражения
-            allowed_chars = set("0123456789.+-*/() ")
-            if not all(c in allowed_chars for c in expr):
-                raise ValueError(f"Invalid characters in expression: {expr}")
-
-            return float(eval(expr))
-
-        except Exception as e:
-            if self.debug:
-                print(f"Error evaluating expression '{expr}': {str(e)}")
-            return expr
-
-    def __init__(self, debug: bool = False):
-        self.debug = debug
-        # Устанавливаем точность для decimal
-        getcontext().prec = 3
-        self.EPSILON = Decimal("0.001")  # Точность сравнения
-
-    def _pack_message(self, content: str, role: str = "user") -> dict:
-        return {"role": role, "content": content}
