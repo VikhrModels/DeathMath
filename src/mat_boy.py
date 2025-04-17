@@ -12,6 +12,14 @@ QUERY_TEMPLATE_RU = """
 Не забудь написать ответ в отдельной строке после "Ответ:", без использования команды \\boxed.
 """.strip()
 
+PHYSICS_TEMPLATE_RU = """
+Реши следующую задачу по физике пошагово. Последняя строка твоего ответа должна быть в формате Ответ: $ANSWER (без кавычек), где $ANSWER - это ответ на задачу.
+
+{task}
+
+Не забудь написать ответ в отдельной строке после "Ответ:", без использования команды \\boxed.
+""".strip()
+
 
 class RussianMathEval(Eval):
     def __init__(
@@ -51,6 +59,91 @@ class RussianMathEval(Eval):
             prompt_messages = [
                 sampler._pack_message(
                     content=QUERY_TEMPLATE_RU.format(**row), role="user"
+                )
+            ]
+
+            # Вызываем сэмплер и получаем ответ и метаданные (включая токены)
+            response_text, metadata = sampler(prompt_messages, return_metadata=True)
+
+            # Ищем ответ после слов "Answer:" или "Ответ:"
+            answer_pattern = r"(?:Answer|Ответ):\s*(.+)$"
+            match = re.search(answer_pattern, response_text, re.MULTILINE)
+            extracted_answer = match.group(1).strip() if match else None
+
+            if self.debug:
+                print(f"Extracted answer: {extracted_answer}")
+
+            score = float(
+                check_equality(
+                    self.equality_checker, str(row["Answer"]), extracted_answer
+                )
+            )
+
+            if self.debug:
+                print(f"Score: {score}")
+                print(f"Tokens used: {metadata.get('total_tokens', 0)}")
+
+            html = common.jinja_env.from_string(common.HTML_JINJA).render(
+                prompt_messages=prompt_messages,
+                next_message=dict(content=response_text, role="assistant"),
+                score=score,
+                correct_answer=row["Answer"],
+                extracted_answer=extracted_answer,
+                tokens=metadata.get("total_tokens", 0),
+            )
+
+            convo = prompt_messages + [dict(content=response_text, role="assistant")]
+            return SingleEvalResult(
+                html=html,
+                score=score,
+                convo=convo,
+                correct_answer=row["Answer"],
+                extracted_answer=extracted_answer,
+                tokens=metadata.get("total_tokens", 0),
+            )
+
+        results = common.map_with_progress(fn, self.examples)
+        return common.aggregate_results(results)
+
+
+class RussianPhysicsEval(Eval):
+    def __init__(
+        self,
+        equality_checker: SamplerBase,
+        num_examples: int | None = 5,
+        n_repeats: int = 1,
+        debug: bool = False,
+    ):
+        # Загружаем датасет Russian Physics
+        dataset = load_dataset("Vikhrmodels/russian_physics")
+        examples = [
+            {"task": row["task"], "Answer": row["answer"]}
+            for row in dataset["train"]
+        ]
+
+        # Ограничиваем количество примеров
+        if num_examples and num_examples > 0:
+            examples = examples[:num_examples]
+        else:
+            examples = examples[:5]  # По умолчанию берем 5 примеров
+
+        self.examples = examples * n_repeats
+        self.equality_checker = equality_checker
+        self.debug = debug
+
+        if self.debug:
+            print(f"Loaded {len(self.examples)} physics examples for evaluation")
+
+    def __call__(self, sampler: SamplerBase) -> EvalResult:
+        def fn(row: dict):
+            if self.debug:
+                print("\nDebug: Processing physics example")
+                print(f"Task: {row['task']}")
+                print(f"Expected answer: {row['Answer']}")
+
+            prompt_messages = [
+                sampler._pack_message(
+                    content=PHYSICS_TEMPLATE_RU.format(**row), role="user"
                 )
             ]
 

@@ -13,12 +13,13 @@ def main():
         os.system('chcp 65001')  # Установка кодировки UTF-8 для Windows консоли
     
     parser = argparse.ArgumentParser(
-        description='Оценка языковых моделей на математических задачах',
+        description='Оценка языковых моделей на математических и физических задачах',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Примеры использования:
-  python runner.py                        # Запустить оценку (по умолчанию)
+  python runner.py                        # Запустить оценку на всех датасетах (по умолчанию)
   python runner.py --dataset russianmath  # Запустить только на датасете RussianMath
+  python runner.py --dataset physics      # Запустить только на датасете RussianPhysics
   python runner.py --no-cache             # Игнорировать кэш и переоценить все модели
   python runner.py --max-workers 8        # Использовать 8 параллельных потоков
         """
@@ -29,8 +30,8 @@ def main():
                       help='Путь к файлу конфигурации (по умолчанию: configs/run.yaml)')
     parser.add_argument('--no-cache', action='store_true',
                       help='Игнорировать кэш и переоценить все модели')
-    parser.add_argument('--dataset', choices=['all', 'russianmath'], default='all',
-                      help='Выбор датасета для оценки: all (все), russianmath (по умолчанию: all)')
+    parser.add_argument('--dataset', choices=['all', 'russianmath', 'physics'], default='all',
+                      help='Выбор датасета для оценки: all (все), russianmath, physics (по умолчанию: all)')
     args = parser.parse_args()
 
     # Загружаем конфиг
@@ -61,6 +62,15 @@ def main():
     if args.dataset == 'all' or args.dataset == 'russianmath':
         print("\nЗапуск оценки на датасете RussianMath")
         leaderboard.evaluate_all_models(system_prompts)
+    
+    if args.dataset == 'all' or args.dataset == 'physics':
+        print("\nЗапуск оценки на датасете RussianPhysics")
+        leaderboard.evaluate_physics_models(system_prompts)
+    
+    # Вычисляем общий скор для моделей (полусумма по обоим датасетам)
+    if args.dataset == 'all':
+        print("\nВычисление общего скора по всем датасетам")
+        leaderboard.calculate_combined_scores()
     
     # Получаем ширину терминала
     terminal_width = shutil.get_terminal_size().columns
