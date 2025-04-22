@@ -4,9 +4,11 @@
   <img src="images/Logo.png" alt="DeathMath Logo" width="300"/>
 </p>
 
-[![Python Version](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
-[![HuggingFace Space](https://img.shields.io/badge/🤗-HuggingFace%20Space-yellow.svg)](https://huggingface.co/spaces/Vikhrmodels/DOoM-lb)
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.13-blue.svg" alt="Python Version"/></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-green.svg" alt="License"/></a>
+  <a href="https://huggingface.co/spaces/Vikhrmodels/DOoM-lb"><img src="https://img.shields.io/badge/🤗-HuggingFace%20Space-yellow.svg" alt="HuggingFace Space"/></a>
+</p>
 
 DeathMath - бенчмарк для оценки качества языковых моделей на математических и физических задачах на русском языке.
 
