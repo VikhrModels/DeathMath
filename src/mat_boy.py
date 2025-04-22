@@ -131,7 +131,9 @@ class RussianMathEval(Eval):
                 tokens=metadata.get("total_tokens", 0),
             )
 
-        results = common.map_with_progress(fn, self.examples)
+        results = common.map_with_progress(
+            fn, self.examples, model_name=sampler.model_name
+        )
         return common.aggregate_results(results)
 
 
@@ -243,7 +245,9 @@ class RussianPhysicsEval(Eval):
                 tokens=metadata.get("total_tokens", 0),
             )
 
-        results = common.map_with_progress(fn, self.examples)
+        results = common.map_with_progress(
+            fn, self.examples, model_name=sampler.model_name
+        )
         return common.aggregate_results(results)
 
 
@@ -362,5 +366,7 @@ class MathDemonEval(Eval):
                 tokens=metadata.get("total_tokens", 0),
             )
 
-        results = common.map_with_progress(fn, self.examples)
+        results = common.map_with_progress(
+            fn, self.examples, model_name=sampler.model_name
+        )
         return common.aggregate_results(results)

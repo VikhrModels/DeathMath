@@ -5,6 +5,9 @@ import time
 import re
 import threading
 import logging
+import traceback
+import json
+from json.decoder import JSONDecodeError
 from .types import SamplerBase
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages
@@ -37,6 +40,10 @@ API_ERROR_PATTERNS = [
     r"^(Error:|Warning:|Exception:|API Error:)",
 ]
 
+# Параметры повтора для ошибок JSON
+JSON_ERROR_MAX_RETRY = 5  # Максимальное количество повторов при ошибках JSON
+JSON_ERROR_RETRY_DELAY = 5  # Начальная задержка между повторами (в секундах)
+
 
 # Глобальный счетчик времени для контроля интервалов между запросами
 class RateLimiter:
@@ -62,6 +69,31 @@ class RateLimiter:
 
             # Обновляем время последнего запроса
             self.last_request_time = time.time()
+
+
+def safe_response_dump(response):
+    """
+    Безопасно сериализует объект ответа API в строку для логирования.
+    Обрабатывает различные типы ответов, включая None, и предотвращает ошибки сериализации.
+    """
+    if response is None:
+        return "None"
+
+    try:
+        # Если у объекта есть метод to_dict или __dict__
+        if hasattr(response, "to_dict") and callable(getattr(response, "to_dict")):
+            return str(response.to_dict())
+        elif hasattr(response, "__dict__"):
+            return str(response.__dict__)
+        # Если это словарь или другой тип, который можно сериализовать
+        elif isinstance(response, (dict, list, str, int, float, bool)):
+            return json.dumps(response, default=str, indent=2)
+        else:
+            # Для всех остальных типов преобразуем в строку
+            return f"{type(response).__name__}: {str(response)}"
+    except Exception as e:
+        # Если произошла ошибка при сериализации, возвращаем информацию о типе объекта
+        return f"[Error serializing {type(response).__name__}: {str(e)}]"
 
 
 class OaiSampler(SamplerBase):
@@ -273,7 +305,9 @@ class OaiSampler(SamplerBase):
                 break
 
             except Exception as e:
-                logger.error(f"API request failed: {type(e).__name__}: {str(e)}")
+                logger.error(
+                    f"API request failed: {type(e).__name__}: {str(e)}", exc_info=True
+                )
 
                 # Если это последняя попытка, фиксируем ошибку
                 if attempt == API_MAX_RETRY - 1:
@@ -318,139 +352,157 @@ class OaiSampler(SamplerBase):
                 self._pack_message(content=self.system_prompt, role="system")
             ] + messages
 
-        try:
-            # Обработка в зависимости от типа API
-            if self.api_type == "gigachat":
-                result, metadata = self.chat_completion_gigachat(
-                    model=self.model_name,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                )
-
-                if return_metadata:
-                    return result, metadata
-                return result
-
-            else:  # openai API по умолчанию
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                )
-
-                if self.debug:
-                    print("\nDebug: Received response")
-                    print(f"Response type: {type(response)}")
-
-                # Инициализируем метаданные
-                metadata: Dict[str, int] = {"total_tokens": 0}
-
-                # Извлекаем информацию о токенах из разных типов ответов
-                if hasattr(response, "usage"):
-                    metadata["prompt_tokens"] = getattr(
-                        response.usage, "prompt_tokens", 0
-                    )
-                    metadata["completion_tokens"] = getattr(
-                        response.usage, "completion_tokens", 0
-                    )
-                    metadata["total_tokens"] = getattr(
-                        response.usage, "total_tokens", 0
-                    )
-                elif isinstance(response, dict) and "usage" in response:
-                    metadata["prompt_tokens"] = response["usage"].get(
-                        "prompt_tokens", 0
-                    )
-                    metadata["completion_tokens"] = response["usage"].get(
-                        "completion_tokens", 0
-                    )
-                    metadata["total_tokens"] = response["usage"].get("total_tokens", 0)
-
-                if self.debug and metadata["total_tokens"] > 0:
-                    print(f"Tokens used: {metadata['total_tokens']}")
-
+        # Для OpenAI API добавляем специальную обработку с повторами для JSONDecodeError
+        if self.api_type != "gigachat":
+            for json_retry in range(JSON_ERROR_MAX_RETRY):
                 try:
-                    result: str = ""
-
-                    # Стандартный путь для OpenAI API
-                    if hasattr(response, "choices") and len(response.choices) > 0:
-                        if hasattr(response.choices[0], "message") and hasattr(
-                            response.choices[0].message, "content"
-                        ):
-                            result = response.choices[0].message.content
-                            if self.debug:
-                                print(
-                                    f"Response content (first 100 chars): {result[:100]}..."
-                                )
-
-                            if return_metadata:
-                                return result, metadata
-                            return result
-
-                    # Путь для словарного формата (некоторые API, включая OpenRouter)
-                    if isinstance(response, dict) and "choices" in response:
-                        if len(response["choices"]) > 0:
-                            if (
-                                "message" in response["choices"][0]
-                                and "content" in response["choices"][0]["message"]
-                            ):
-                                result = response["choices"][0]["message"]["content"]
-                                if self.debug:
-                                    print(
-                                        f"Response content from dict (first 100 chars): {result[:100]}..."
-                                    )
-
-                                if return_metadata:
-                                    return result, metadata
-                                return result
-
-                    # Если ничего не нашли, но есть response в строковом виде
-                    if isinstance(response, str):
-                        if return_metadata:
-                            return response, metadata
-                        return response
-
-                    # Последняя попытка получить ответ
-                    if hasattr(response, "content"):
-                        if return_metadata:
-                            return response.content, metadata
-                        return response.content
-
-                    # Если все методы не сработали, возвращаем строку с ошибкой формата
-                    error_msg = f"Failed to extract response content. Response type: {type(response)}"
-                    if self.debug:
-                        print(error_msg)
-                        print(f"Response dump: {response}")
-
-                    if return_metadata:
-                        return error_msg, metadata
-                    return error_msg
-
-                except Exception as content_error:
-                    if self.debug:
-                        print(
-                            f"Error extracting content from response: {str(content_error)}"
+                    # Основной блок обработки OpenAI API
+                    return self._process_openai_request(messages, return_metadata)
+                except Exception as e:
+                    # Проверяем, является ли ошибка JSONDecodeError
+                    if (
+                        isinstance(e, JSONDecodeError)
+                        or "JSONDecodeError" in str(e)
+                        or "Expecting value" in str(e)
+                    ):
+                        retry_delay = JSON_ERROR_RETRY_DELAY * (1 + json_retry * 0.5)
+                        logger.warning(
+                            f"JSONDecodeError detected, retrying in {retry_delay:.1f}s "
+                            f"(attempt {json_retry + 1}/{JSON_ERROR_MAX_RETRY}): {str(e)}"
                         )
-                    # Возвращаем сообщение об ошибке если не можем извлечь контент
+                        time.sleep(retry_delay)
+                        # Если это не последняя попытка, продолжаем цикл
+                        if json_retry < JSON_ERROR_MAX_RETRY - 1:
+                            continue
+
+                    # Для всех других ошибок или если исчерпали попытки для JSONDecodeError
                     error_msg = (
-                        f"Error extracting response content: {str(content_error)}"
+                        f"\nError during API call:"
+                        f"\nModel: {self.model_name}"
+                        f"\nAPI Type: {self.api_type}"
+                        f"\nBase URL: {self.base_url}"
                     )
+                    if self.api_key:
+                        error_msg += f"\nAPI Key (first 8 chars): {self.api_key[:8]}..."
+                    elif self.credentials:
+                        error_msg += f"\nCredentials used for: {self.api_type}"
+                    error_msg += f"\nError: {type(e).__name__}: {str(e)}"
+                    error_msg += f"\nTraceback: {traceback.format_exc()}"
+
+                    logger.error(error_msg)
+                    raise Exception(
+                        f"API call failed for model {self.model_name}. Check logs for details."
+                    ) from e
+        else:
+            # Обработка для GigaChat остается без изменений
+            result, metadata = self.chat_completion_gigachat(
+                model=self.model_name,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+
+            if return_metadata:
+                return result, metadata
+            return result
+
+    def _process_openai_request(
+        self, messages: List[Dict[str, str]], return_metadata: bool = False
+    ):
+        """
+        Обрабатывает запрос к OpenAI API и возвращает результат.
+        Выделено в отдельный метод для более удобного механизма повторов.
+        """
+        # Prepare arguments for the API call
+        api_args = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": self.temperature,
+        }
+        # Add max_tokens only if it has a value
+        if self.max_tokens is not None:
+            api_args["max_tokens"] = self.max_tokens
+
+        response = self.client.chat.completions.create(**api_args)
+
+        # Инициализируем метаданные
+        metadata: Dict[str, int] = {"total_tokens": 0}
+
+        # Извлекаем информацию о токенах из разных типов ответов
+        if hasattr(response, "usage"):
+            metadata["prompt_tokens"] = getattr(response.usage, "prompt_tokens", 0)
+            metadata["completion_tokens"] = getattr(
+                response.usage, "completion_tokens", 0
+            )
+            metadata["total_tokens"] = getattr(response.usage, "total_tokens", 0)
+        elif isinstance(response, dict) and "usage" in response:
+            metadata["prompt_tokens"] = response["usage"].get("prompt_tokens", 0)
+            metadata["completion_tokens"] = response["usage"].get(
+                "completion_tokens", 0
+            )
+            metadata["total_tokens"] = response["usage"].get("total_tokens", 0)
+
+        try:
+            result: str = ""
+
+            # Стандартный путь для OpenAI API
+            if hasattr(response, "choices") and len(response.choices) > 0:
+                if hasattr(response.choices[0], "message") and hasattr(
+                    response.choices[0].message, "content"
+                ):
+                    result = response.choices[0].message.content
 
                     if return_metadata:
-                        return error_msg, metadata
-                    return error_msg
+                        return result, metadata
+                    return result
 
-        except Exception as e:
+            # Путь для словарного формата (некоторые API, включая OpenRouter)
+            if isinstance(response, dict) and "choices" in response:
+                if len(response["choices"]) > 0:
+                    if (
+                        "message" in response["choices"][0]
+                        and "content" in response["choices"][0]["message"]
+                    ):
+                        result = response["choices"][0]["message"]["content"]
+
+                        if return_metadata:
+                            return result, metadata
+                        return result
+
+            # Если ничего не нашли, но есть response в строковом виде
+            if isinstance(response, str):
+                if return_metadata:
+                    return response, metadata
+                return response
+
+            # Последняя попытка получить ответ
+            if hasattr(response, "content"):
+                if return_metadata:
+                    return response.content, metadata
+                return response.content
+
+            # Если все методы не сработали, возвращаем строку с ошибкой формата
             error_msg = (
-                f"\nError during API call:"
-                f"\nModel: {self.model_name}"
-                f"\nAPI Type: {self.api_type}"
-                f"\nBase URL: {self.base_url}"
+                f"Failed to extract response content. Response type: {type(response)}"
             )
-            if self.api_key:
-                error_msg += f"\nAPI Key (first 8 chars): {self.api_key[:8]}..."
-            error_msg += f"\nError: {str(e)}"
+            logger.warning(
+                f"{error_msg}. Response dump: {safe_response_dump(response)}"
+            )
 
-            logger.error(error_msg)
-            raise Exception(error_msg) from e
+            if return_metadata:
+                return error_msg, metadata
+            return error_msg
+
+        except Exception as content_error:
+            logger.error(
+                f"Error extracting content from response: {str(content_error)}"
+            )
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Response dump: {safe_response_dump(response)}")
+
+            # Возвращаем сообщение об ошибке если не можем извлечь контент
+            error_msg = f"Error extracting response content: {str(content_error)}"
+
+            if return_metadata:
+                return error_msg, metadata
+            return error_msg
