@@ -9,7 +9,7 @@ import requests
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
-from .types import EvalResult, SingleEvalResult, SamplerBase
+from .types import EvalResult, SingleEvalResult
 
 T = TypeVar("T")
 R = TypeVar("R")

@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 import json
 from datetime import datetime
-from src.equality_checker import MathEqualityChecker
+from src.equality_checker import DoomSlayer
 from src.sampler import OaiSampler
 from src.mat_boy import RussianMathEval, MathDemonEval
 from src.types import SingleEvalResult
@@ -47,7 +47,7 @@ class Leaderboard:
         with open(config_path, "r") as f:
             self.config: Dict[str, Any] = yaml.safe_load(f)
         self.model_links: Dict[str, str] = self.config.get("model_links", {})
-        self.equality_checker: MathEqualityChecker = MathEqualityChecker()
+        self.equality_checker: DoomSlayer = DoomSlayer()
         self.results_file: Path = self.output_dir / "leaderboard_results.json"
         self.results: Dict[str, Dict[str, Any]] = self._load_results()
 

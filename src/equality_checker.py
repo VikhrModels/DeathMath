@@ -1,16 +1,16 @@
-from typing import Dict, Union
+from typing import Union
 import re
 from src.types import SamplerBase
-from fractions import Fraction
-from decimal import Decimal, getcontext, ROUND_HALF_UP
+import sympy
+from sympy.parsing.latex import parse_latex
 
 
-class MathEqualityChecker(SamplerBase):
+class DoomSlayer(SamplerBase):
     """
     Класс для проверки равенства математических выражений.
 
     Выполняет нормализацию и сравнение математических выражений,
-    учитывая различные форматы записи чисел и выражений.
+    используя регулярные выражения и символьные вычисления через sympy.
     """
 
     def __init__(self, debug: bool = False) -> None:
@@ -20,158 +20,95 @@ class MathEqualityChecker(SamplerBase):
         Args:
             debug: Режим отладки для вывода подробной информации
         """
-        self.debug: bool = debug
-        # Устанавливаем точность для decimal
-        getcontext().prec = 3
-        self.EPSILON: Decimal = Decimal("0.001")  # Точность сравнения
+        self.debug = debug
 
-    def _pack_message(self, content: str, role: str = "user") -> Dict[str, str]:
+    def preprocess_answer(self, answer: str, hard: bool) -> str:
         """
-        Упаковывает содержимое в сообщение с указанной ролью.
+        Предварительная обработка ответа перед сравнением.
 
         Args:
-            content: Содержимое сообщения
-            role: Роль отправителя (по умолчанию "user")
+            answer: Исходный ответ
+            hard: Режим строгого сравнения (True) или упрощенного (False)
 
         Returns:
-            Словарь, представляющий сообщение
+            Предобработанный ответ в виде списка строк
         """
-        return {"role": role, "content": content}
-
-    def _normalize_answer(self, answer: Union[str, int, float]) -> str:
-        """
-        Нормализует ответ: преобразует в строку и оставляет только цифры,
-        математические операторы и десятичный разделитель.
-
-        Args:
-            answer: Исходный ответ (строка или число)
-
-        Returns:
-            Нормализованная строка ответа
-        """
-        if not isinstance(answer, str):
-            answer = str(answer)
-
-        # Заменяем запятые на точки
-        answer = answer.replace(",", ".")
-
-        # Удаляем все пробелы
-        answer = answer.replace(" ", "")
-
-        # Удаляем символ доллара
-        answer = answer.replace("$", "")
-
-        # Заменяем русские буквы на английские (е -> e)
-        answer = answer.replace("е", "e")
-
-        # Оставляем только цифры, операторы и точку
-        answer = re.sub(r"[^0-9\+\-\*/\(\)\.\,e]", "", answer)
-
-        if self.debug:
-            print(f"Normalized answer: '{answer}' from original: '{str(answer)}'")
-
-        return answer
-
-    def _evaluate_math_expression(self, expr: str) -> Union[float, str]:
-        """
-        Вычисляет математическое выражение.
-
-        Безопасно вычисляет значение математического выражения,
-        обрабатывая простые дроби и проверяя наличие недопустимых символов.
-
-        Args:
-            expr: Строка с математическим выражением
-
-        Returns:
-            Результат вычисления как число или исходная строка в случае ошибки
-
-        Raises:
-            ValueError: Если в выражении содержатся недопустимые символы
-        """
-        try:
-            # Пробуем обработать дроби вида 1/10
-            if "/" in expr and not any(op in expr for op in ["+", "-", "*"]):
-                num, denom = expr.split("/")
-                return float(Fraction(int(num), int(denom)))
-
-            # Безопасное выполнение математического выражения
-            allowed_chars = set("0123456789.+-*/() ")
-            if not all(c in allowed_chars for c in expr):
-                raise ValueError(f"Invalid characters in expression: {expr}")
-
-            return float(eval(expr))
-
-        except Exception as e:
-            if self.debug:
-                print(f"Error evaluating expression '{expr}': {str(e)}")
-            return expr
+        if not hard:
+            return sorted(re.findall("[0-9.]+", answer))
+        answer = answer.lower()
+        return sorted(re.findall(r"[0-9.,а-яa-z/\+\-]+", answer))
 
     def __call__(
-        self, expected: Union[str, int, float], actual: Union[str, int, float]
+        self, predict: Union[str, int, float], answer: Union[str, int, float]
     ) -> bool:
         """
         Проверяет равенство математических ответов.
 
-        Сравнивает два математических выражения или числа, нормализуя их
-        и вычисляя значения с заданной точностью.
-
         Args:
-            expected: Ожидаемый (правильный) ответ
-            actual: Фактический ответ для проверки
+            predict: Предсказанный ответ для проверки
+            answer: Ожидаемый (правильный) ответ
 
         Returns:
             True если ответы эквивалентны, иначе False
         """
-        if expected is None or actual is None:
+        if predict is None or answer is None:
             return False
 
-        try:
-            # Нормализуем ответы
-            expected_norm = self._normalize_answer(expected)
-            actual_norm = self._normalize_answer(actual)
+        predict = str(predict)
+        answer = str(answer)
 
-            if self.debug:
-                print(f"\nComparing: '{expected_norm}' with '{actual_norm}'")
+        if re.match("[0-9., ]+", answer) and re.match("[0-9,. ]+", predict):
+            return self.simple_check(predict, answer)
+        return self.latex_equivalent(predict, answer)
 
-            if expected_norm == actual_norm:
-                return True
+    def simple_check(self, predict: str, answer: str) -> bool:
+        """
+        Выполняет простую проверку числовых ответов.
 
-            # Пробуем сравнить как числа
+        Args:
+            predict: Предсказанный ответ
+            answer: Ожидаемый ответ
+
+        Returns:
+            True если ответы совпадают, иначе False
+        """
+        predict = self.preprocess_answer(predict, False)
+        answer = self.preprocess_answer(answer, False)
+        if self.debug:
+            print(answer, predict)
+        return "".join(answer).replace(",", ".") == "".join(predict).replace(",", ".")
+
+    def latex_equivalent(self, latex_formula1: str, latex_formula2: str) -> bool:
+        """
+        Сравнивает две формулы в формате LaTeX через Sympy.
+        Возвращает True, если формулы математически эквивалентны, иначе False.
+
+        Args:
+            latex_formula1: Первая формула для сравнения
+            latex_formula2: Вторая формула для сравнения
+
+        Returns:
+            True если формулы эквивалентны, иначе False
+        """
+        latex_formula1 = self.preprocess_answer(latex_formula1, True)
+        latex_formula2 = self.preprocess_answer(latex_formula2, True)
+
+        results = [True for _ in range(len(latex_formula1))]
+        for i in range(len(latex_formula1)):
             try:
-                expected_val = self._evaluate_math_expression(expected_norm)
-                actual_val = self._evaluate_math_expression(actual_norm)
-
-                # Округляем до 3 знаков
-                if isinstance(expected_val, (int, float, Fraction)):
-                    expected_decimal = Decimal(str(float(expected_val))).quantize(
-                        Decimal("0.001"), rounding=ROUND_HALF_UP
-                    )
-                else:
-                    expected_decimal = Decimal(str(expected_val)).quantize(
-                        Decimal("0.001"), rounding=ROUND_HALF_UP
-                    )
-
-                if isinstance(actual_val, (int, float, Fraction)):
-                    actual_decimal = Decimal(str(float(actual_val))).quantize(
-                        Decimal("0.001"), rounding=ROUND_HALF_UP
-                    )
-                else:
-                    actual_decimal = Decimal(str(actual_val)).quantize(
-                        Decimal("0.001"), rounding=ROUND_HALF_UP
-                    )
-
-                if self.debug:
-                    print(f"Rounded values: {expected_decimal} vs {actual_decimal}")
-
-                # Сравниваем округленные значения
-                return abs(expected_decimal - actual_decimal) <= self.EPSILON
-
+                expr1 = parse_latex(latex_formula1[i])
+                expr2 = parse_latex(latex_formula2[i])
+                diff = sympy.simplify(expr1 - expr2)
+                results[i] = diff == 0
             except Exception as e:
-                if self.debug:
-                    print(f"Error during math evaluation: {str(e)}")
-                return False
+                try:
+                    if latex_formula1[i] == latex_formula2[i]:
+                        continue
+                except:
+                    pass
+                results[i] = False
 
-        except Exception as e:
-            if self.debug:
-                print(f"Error during equality check: {str(e)}")
-            return False
+                if self.debug:
+                    print(f"Error during LaTeX comparison: {str(e)}")
+
+        return all(results)

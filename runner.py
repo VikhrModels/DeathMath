@@ -1,6 +1,6 @@
 import yaml
 from typing import Dict, Any, Optional
-from src.equality_checker import MathEqualityChecker
+from src.equality_checker import DoomSlayer
 from src.leaderboard import Leaderboard
 import argparse
 from pathlib import Path
@@ -69,7 +69,7 @@ def main() -> None:
                 cache_file.unlink()
 
     # Создаем equality checker для проверки равенства математических выражений
-    equality_checker = MathEqualityChecker()
+    equality_checker = DoomSlayer()
 
     # Создаем и инициализируем лидерборд
     leaderboard = Leaderboard(args.config, max_workers=args.max_workers)
