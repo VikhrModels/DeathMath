@@ -71,6 +71,7 @@ def main() -> None:
     # Создаем equality checker для проверки равенства математических выражений
     equality_checker = DoomSlayer()
 
+
     # Создаем и инициализируем лидерборд
     leaderboard = Leaderboard(args.config, max_workers=args.max_workers)
 

@@ -5,6 +5,7 @@ import sympy
 from sympy.parsing.latex import parse_latex
 
 
+
 class DoomSlayer(SamplerBase):
     """
     Класс для проверки равенства математических выражений.
@@ -22,6 +23,7 @@ class DoomSlayer(SamplerBase):
         """
         self.debug = debug
 
+        
     def preprocess_answer(self, answer: str, hard: bool) -> str:
         """
         Предварительная обработка ответа перед сравнением.
@@ -44,6 +46,7 @@ class DoomSlayer(SamplerBase):
         """
         Проверяет равенство математических ответов.
 
+
         Args:
             predict: Предсказанный ответ для проверки
             answer: Ожидаемый (правильный) ответ
@@ -51,6 +54,7 @@ class DoomSlayer(SamplerBase):
         Returns:
             True если ответы эквивалентны, иначе False
         """
+
         if predict is None or answer is None:
             return False
 

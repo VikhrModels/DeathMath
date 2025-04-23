@@ -8,6 +8,7 @@ import logging
 import traceback
 import json
 from json.decoder import JSONDecodeError
+
 from .types import SamplerBase
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages
@@ -39,6 +40,7 @@ API_ERROR_PATTERNS = [
     # Если ответ содержит только технические сообщения или метаданные API
     r"^(Error:|Warning:|Exception:|API Error:)",
 ]
+
 
 # Параметры повтора для ошибок JSON
 JSON_ERROR_MAX_RETRY = 5  # Максимальное количество повторов при ошибках JSON
@@ -94,6 +96,7 @@ def safe_response_dump(response):
     except Exception as e:
         # Если произошла ошибка при сериализации, возвращаем информацию о типе объекта
         return f"[Error serializing {type(response).__name__}: {str(e)}]"
+
 
 
 class OaiSampler(SamplerBase):
@@ -309,6 +312,7 @@ class OaiSampler(SamplerBase):
                     f"API request failed: {type(e).__name__}: {str(e)}", exc_info=True
                 )
 
+
                 # Если это последняя попытка, фиксируем ошибку
                 if attempt == API_MAX_RETRY - 1:
                     logger.error(f"All {API_MAX_RETRY} retry attempts exhausted.")
@@ -423,10 +427,12 @@ class OaiSampler(SamplerBase):
         if self.max_tokens is not None:
             api_args["max_tokens"] = self.max_tokens
 
+
         response = self.client.chat.completions.create(**api_args)
 
         # Инициализируем метаданные
         metadata: Dict[str, int] = {"total_tokens": 0}
+
 
         # Извлекаем информацию о токенах из разных типов ответов
         if hasattr(response, "usage"):
@@ -441,6 +447,7 @@ class OaiSampler(SamplerBase):
                 "completion_tokens", 0
             )
             metadata["total_tokens"] = response["usage"].get("total_tokens", 0)
+
 
         try:
             result: str = ""
@@ -502,6 +509,7 @@ class OaiSampler(SamplerBase):
 
             # Возвращаем сообщение об ошибке если не можем извлечь контент
             error_msg = f"Error extracting response content: {str(content_error)}"
+
 
             if return_metadata:
                 return error_msg, metadata
