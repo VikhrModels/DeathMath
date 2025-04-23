@@ -1,120 +1,114 @@
-from typing import Any
+from typing import Union
 import re
 from src.types import SamplerBase
-from fractions import Fraction
-from decimal import Decimal, getcontext, ROUND_HALF_UP
+import sympy
+from sympy.parsing.latex import parse_latex
 
 
-class MathEqualityChecker(SamplerBase):
-    def _pack_message(self, content: str, role: str = "user") -> dict:
-        return {"role": role, "content": content}
+class DoomSlayer(SamplerBase):
+    """
+    Класс для проверки равенства математических выражений.
 
-    def _normalize_answer(self, answer: str) -> str:
-        """Нормализует ответ: удаляет все кроме цифр, операторов и точки"""
-        if not isinstance(answer, str):
-            answer = str(answer)
+    Выполняет нормализацию и сравнение математических выражений,
+    используя регулярные выражения и символьные вычисления через sympy.
+    """
 
-        # Заменяем запятые на точки
-        answer = answer.replace(",", ".")
+    def __init__(self, debug: bool = False) -> None:
+        """
+        Инициализирует проверку равенства математических выражений.
 
-        # Удаляем все пробелы
-        answer = answer.replace(" ", "")
-
-        # Удаляем символ доллара
-        answer = answer.replace("$", "")
-
-        # Заменяем русские буквы на английские (е -> e)
-        answer = answer.replace("е", "e")
-
-        # Оставляем только цифры, операторы и точку
-        answer = re.sub(r"[^0-9\+\-\*/\(\)\.\,e]", "", answer)
-
-        if self.debug:
-            print(f"Normalized answer: '{answer}' from original: '{str(answer)}'")
-
-        return answer
-
-    def __call__(self, expected: str, actual: str) -> bool:
-        """Проверяет равенство математических ответов"""
-        if expected is None or actual is None:
-            return False
-
-        try:
-            # Нормализуем ответы
-            expected_norm = self._normalize_answer(expected)
-            actual_norm = self._normalize_answer(actual)
-
-            if self.debug:
-                print(f"\nComparing: '{expected_norm}' with '{actual_norm}'")
-
-            if expected_norm == actual_norm:
-                return True
-
-            # Пробуем сравнить как числа
-            try:
-                expected_val = self._evaluate_math_expression(expected_norm)
-                actual_val = self._evaluate_math_expression(actual_norm)
-
-                # Округляем до 3 знаков
-                if isinstance(expected_val, (int, float, Fraction)):
-                    expected_decimal = Decimal(str(float(expected_val))).quantize(
-                        Decimal("0.001"), rounding=ROUND_HALF_UP
-                    )
-                else:
-                    expected_decimal = Decimal(str(expected_val)).quantize(
-                        Decimal("0.001"), rounding=ROUND_HALF_UP
-                    )
-
-                if isinstance(actual_val, (int, float, Fraction)):
-                    actual_decimal = Decimal(str(float(actual_val))).quantize(
-                        Decimal("0.001"), rounding=ROUND_HALF_UP
-                    )
-                else:
-                    actual_decimal = Decimal(str(actual_val)).quantize(
-                        Decimal("0.001"), rounding=ROUND_HALF_UP
-                    )
-
-                if self.debug:
-                    print(f"Rounded values: {expected_decimal} vs {actual_decimal}")
-
-                # Сравниваем округленные значения
-                return abs(expected_decimal - actual_decimal) <= self.EPSILON
-
-            except Exception as e:
-                if self.debug:
-                    print(f"Error during math evaluation: {str(e)}")
-                return False
-
-        except Exception as e:
-            if self.debug:
-                print(f"Error during equality check: {str(e)}")
-            return False
-
-    def _evaluate_math_expression(self, expr: str) -> Any:
-        """Вычисляет математическое выражение"""
-        try:
-            # Пробуем обработать дроби вида 1/10
-            if "/" in expr and not any(op in expr for op in ["+", "-", "*"]):
-                num, denom = expr.split("/")
-                return float(Fraction(int(num), int(denom)))
-
-            # Безопасное выполнение математического выражения
-            allowed_chars = set("0123456789.+-*/() ")
-            if not all(c in allowed_chars for c in expr):
-                raise ValueError(f"Invalid characters in expression: {expr}")
-
-            return float(eval(expr))
-
-        except Exception as e:
-            if self.debug:
-                print(f"Error evaluating expression '{expr}': {str(e)}")
-            return expr
-
-    def __init__(self, debug: bool = False):
+        Args:
+            debug: Режим отладки для вывода подробной информации
+        """
         self.debug = debug
-        # Устанавливаем точность для decimal
-        getcontext().prec = 3
-        self.EPSILON = Decimal("0.001")  # Точность сравнения
 
-    def _pack_message(self, content: str, role: str = "user") -> dict:
-        return {"role": role, "content": content}
+    def preprocess_answer(self, answer: str, hard: bool) -> str:
+        """
+        Предварительная обработка ответа перед сравнением.
+
+        Args:
+            answer: Исходный ответ
+            hard: Режим строгого сравнения (True) или упрощенного (False)
+
+        Returns:
+            Предобработанный ответ в виде списка строк
+        """
+        if not hard:
+            return sorted(re.findall("[0-9.]+", answer))
+        answer = answer.lower()
+        return sorted(re.findall(r"[0-9.,а-яa-z/\+\-]+", answer))
+
+    def __call__(
+        self, predict: Union[str, int, float], answer: Union[str, int, float]
+    ) -> bool:
+        """
+        Проверяет равенство математических ответов.
+
+        Args:
+            predict: Предсказанный ответ для проверки
+            answer: Ожидаемый (правильный) ответ
+
+        Returns:
+            True если ответы эквивалентны, иначе False
+        """
+        if predict is None or answer is None:
+            return False
+
+        predict = str(predict)
+        answer = str(answer)
+
+        if re.match("[0-9., ]+", answer) and re.match("[0-9,. ]+", predict):
+            return self.simple_check(predict, answer)
+        return self.latex_equivalent(predict, answer)
+
+    def simple_check(self, predict: str, answer: str) -> bool:
+        """
+        Выполняет простую проверку числовых ответов.
+
+        Args:
+            predict: Предсказанный ответ
+            answer: Ожидаемый ответ
+
+        Returns:
+            True если ответы совпадают, иначе False
+        """
+        predict = self.preprocess_answer(predict, False)
+        answer = self.preprocess_answer(answer, False)
+        if self.debug:
+            print(answer, predict)
+        return "".join(answer).replace(",", ".") == "".join(predict).replace(",", ".")
+
+    def latex_equivalent(self, latex_formula1: str, latex_formula2: str) -> bool:
+        """
+        Сравнивает две формулы в формате LaTeX через Sympy.
+        Возвращает True, если формулы математически эквивалентны, иначе False.
+
+        Args:
+            latex_formula1: Первая формула для сравнения
+            latex_formula2: Вторая формула для сравнения
+
+        Returns:
+            True если формулы эквивалентны, иначе False
+        """
+        latex_formula1 = self.preprocess_answer(latex_formula1, True)
+        latex_formula2 = self.preprocess_answer(latex_formula2, True)
+
+        results = [True for _ in range(len(latex_formula1))]
+        for i in range(len(latex_formula1)):
+            try:
+                expr1 = parse_latex(latex_formula1[i])
+                expr2 = parse_latex(latex_formula2[i])
+                diff = sympy.simplify(expr1 - expr2)
+                results[i] = diff == 0
+            except Exception as e:
+                try:
+                    if latex_formula1[i] == latex_formula2[i]:
+                        continue
+                except:
+                    pass
+                results[i] = False
+
+                if self.debug:
+                    print(f"Error during LaTeX comparison: {str(e)}")
+
+        return all(results)
