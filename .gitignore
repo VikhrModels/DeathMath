@@ -1,5 +1,5 @@
 venv
-results/cache
+results/*
+!results/.gitkeep
 src/__pycache__
 configs/run.yaml
-results/details/
