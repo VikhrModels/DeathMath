@@ -22,8 +22,6 @@ PHYSICS_TEMPLATE_RU = """
 """.strip()
 
 
-
-
 class RussianMathEval(Eval):
     """
     Класс для оценки языковых моделей на русскоязычных математических задачах.
@@ -96,7 +94,6 @@ class RussianMathEval(Eval):
             ]
 
             response_text, metadata = sampler(prompt_messages, return_metadata=True)
-
 
             answer_pattern = r"(?:Answer|Ответ):\s*(.+)$"
             match = re.search(answer_pattern, response_text, re.MULTILINE)

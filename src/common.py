@@ -236,7 +236,6 @@ def map_with_progress(
     items: List[T],
     max_workers: int = 4,
     model_name: Optional[str] = None,
-
 ) -> List[R]:
     """
     Параллельно применяет функцию к элементам списка с отображением прогресса.

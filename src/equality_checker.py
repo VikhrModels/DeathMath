@@ -5,7 +5,6 @@ import sympy
 from sympy.parsing.latex import parse_latex
 
 
-
 class DoomSlayer(SamplerBase):
     """
     Класс для проверки равенства математических выражений.
@@ -23,7 +22,6 @@ class DoomSlayer(SamplerBase):
         """
         self.debug = debug
 
-        
     def preprocess_answer(self, answer: str, hard: bool) -> str:
         """
         Предварительная обработка ответа перед сравнением.

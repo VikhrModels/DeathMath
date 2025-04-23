@@ -98,7 +98,6 @@ def safe_response_dump(response):
         return f"[Error serializing {type(response).__name__}: {str(e)}]"
 
 
-
 class OaiSampler(SamplerBase):
     # Создаем словарь ограничителей скорости для разных моделей API
     _rate_limiters = {}
@@ -312,7 +311,6 @@ class OaiSampler(SamplerBase):
                     f"API request failed: {type(e).__name__}: {str(e)}", exc_info=True
                 )
 
-
                 # Если это последняя попытка, фиксируем ошибку
                 if attempt == API_MAX_RETRY - 1:
                     logger.error(f"All {API_MAX_RETRY} retry attempts exhausted.")
@@ -427,12 +425,10 @@ class OaiSampler(SamplerBase):
         if self.max_tokens is not None:
             api_args["max_tokens"] = self.max_tokens
 
-
         response = self.client.chat.completions.create(**api_args)
 
         # Инициализируем метаданные
         metadata: Dict[str, int] = {"total_tokens": 0}
-
 
         # Извлекаем информацию о токенах из разных типов ответов
         if hasattr(response, "usage"):
@@ -447,7 +443,6 @@ class OaiSampler(SamplerBase):
                 "completion_tokens", 0
             )
             metadata["total_tokens"] = response["usage"].get("total_tokens", 0)
-
 
         try:
             result: str = ""
@@ -509,7 +504,6 @@ class OaiSampler(SamplerBase):
 
             # Возвращаем сообщение об ошибке если не можем извлечь контент
             error_msg = f"Error extracting response content: {str(content_error)}"
-
 
             if return_metadata:
                 return error_msg, metadata

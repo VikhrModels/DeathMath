@@ -1,9 +1,0 @@
-{
-  "model_name": "deepseek/deepseek-chat-v3-0324",
-  "score": 0.1,
-  "total_tokens": 0,
-  "evaluation_time": 6813.402790546417,
-  "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-  "timestamp": "20250409_075941",
-  "cache_key": "6e85baf11bd53872cf446f051cbd4db6"
-}
