@@ -241,7 +241,7 @@ class OaiSampler(SamplerBase):
         metadata: Dict[str, int] = {"total_tokens": 0}
 
         # Записываем в лог информацию о запросе
-        logger.info(f"Making API request to GigaChat [{model}]")
+        logger.info(f"Making API request to GigaChat model [{model}]")
 
         # Создаем клиент и настраиваем параметры только один раз перед циклом
         client = GigaChat(model=model, verify_ssl_certs=False, **api_dict)
@@ -269,7 +269,7 @@ class OaiSampler(SamplerBase):
                     1 + attempt * 0.5
                 )  # Увеличиваем задержку с каждой попыткой
                 logger.info(
-                    f"Retrying API request (attempt {attempt + 1}/{API_MAX_RETRY}), waiting {retry_delay:.1f}s"
+                    f"Model [{model}]: Retrying API request (attempt {attempt + 1}/{API_MAX_RETRY}), waiting {retry_delay:.1f}s"
                 )
                 time.sleep(retry_delay)
 
@@ -281,7 +281,7 @@ class OaiSampler(SamplerBase):
                 if self.contains_error_patterns(output):
                     error_msg = output[:100] + "..." if len(output) > 100 else output
                     logger.warning(
-                        f"API returned error in response content: {error_msg}"
+                        f"Model [{model}] (attempt {attempt + 1}/{API_MAX_RETRY}): API returned error in response content: {error_msg}"
                     )
                     if attempt < API_MAX_RETRY - 1:
                         continue  # Повторяем запрос
@@ -300,7 +300,7 @@ class OaiSampler(SamplerBase):
 
                 # Записываем в лог успешный запрос
                 logger.info(
-                    f"API request successful, tokens used: {metadata['total_tokens']}"
+                    f"Model [{model}]: API request successful, tokens used: {metadata['total_tokens']}"
                 )
 
                 # Успешно получен ответ без ошибок в содержимом
@@ -308,12 +308,12 @@ class OaiSampler(SamplerBase):
 
             except Exception as e:
                 logger.error(
-                    f"API request failed: {type(e).__name__}: {str(e)}", exc_info=True
+                    f"Model [{model}] (attempt {attempt + 1}/{API_MAX_RETRY}): API request failed: {type(e).__name__}: {str(e)}"
                 )
 
                 # Если это последняя попытка, фиксируем ошибку
                 if attempt == API_MAX_RETRY - 1:
-                    logger.error(f"All {API_MAX_RETRY} retry attempts exhausted.")
+                    logger.error(f"Model [{model}]: All {API_MAX_RETRY} retry attempts exhausted. Last error: {str(e)}")
                     output = f"Error during API call: {str(e)}"
 
         return output, metadata
@@ -369,8 +369,7 @@ class OaiSampler(SamplerBase):
                     ):
                         retry_delay = JSON_ERROR_RETRY_DELAY * (1 + json_retry * 0.5)
                         logger.warning(
-                            f"JSONDecodeError detected, retrying in {retry_delay:.1f}s "
-                            f"(attempt {json_retry + 1}/{JSON_ERROR_MAX_RETRY}): {str(e)}"
+                            f"Model [{self.model_name}] (JSONDecodeError attempt {json_retry + 1}/{JSON_ERROR_MAX_RETRY}): retrying in {retry_delay:.1f}s. Error: {str(e)}"
                         )
                         time.sleep(retry_delay)
                         # Если это не последняя попытка, продолжаем цикл
@@ -421,6 +420,9 @@ class OaiSampler(SamplerBase):
         if self.max_tokens is not None:
             api_args["max_tokens"] = self.max_tokens
 
+        # Записываем в лог информацию о запросе для OpenAI
+        logger.info(f"Making OpenAI API request to model [{self.model_name}]")
+            
         response = self.client.chat.completions.create(**api_args)
 
         # Инициализируем метаданные
@@ -449,6 +451,17 @@ class OaiSampler(SamplerBase):
                     response.choices[0].message, "content"
                 ):
                     result = response.choices[0].message.content
+                    
+                    # Проверяем содержимое ответа на наличие шаблонов ошибок
+                    if self.contains_error_patterns(result):
+                        error_msg = result[:100] + "..." if len(result) > 100 else result
+                        logger.warning(
+                            f"Model [{self.model_name}]: API returned error in response content: {error_msg}"
+                        )
+                    else:
+                        logger.info(
+                            f"Model [{self.model_name}]: API request successful, tokens used: {metadata['total_tokens']}"
+                        )
 
                     if return_metadata:
                         return result, metadata
@@ -462,6 +475,17 @@ class OaiSampler(SamplerBase):
                         and "content" in response["choices"][0]["message"]
                     ):
                         result = response["choices"][0]["message"]["content"]
+                        
+                        # Проверяем содержимое ответа на наличие шаблонов ошибок
+                        if self.contains_error_patterns(result):
+                            error_msg = result[:100] + "..." if len(result) > 100 else result
+                            logger.warning(
+                                f"Model [{self.model_name}]: API returned error in response content: {error_msg}"
+                            )
+                        else:
+                            logger.info(
+                                f"Model [{self.model_name}]: API request successful, tokens used: {metadata['total_tokens']}"
+                            )
 
                         if return_metadata:
                             return result, metadata
@@ -484,7 +508,7 @@ class OaiSampler(SamplerBase):
                 f"Failed to extract response content. Response type: {type(response)}"
             )
             logger.warning(
-                f"{error_msg}. Response dump: {safe_response_dump(response)}"
+                f"Model [{self.model_name}]: {error_msg}. Response dump: {safe_response_dump(response)}"
             )
 
             if return_metadata:
@@ -493,10 +517,10 @@ class OaiSampler(SamplerBase):
 
         except Exception as content_error:
             logger.error(
-                f"Error extracting content from response: {str(content_error)}"
+                f"Model [{self.model_name}]: Error extracting content from response: {str(content_error)}"
             )
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            logger.error(f"Response dump: {safe_response_dump(response)}")
+            logger.error(f"Model [{self.model_name}]: Traceback: {traceback.format_exc()}")
+            logger.error(f"Model [{self.model_name}]: Response dump: {safe_response_dump(response)}")
 
             # Возвращаем сообщение об ошибке если не можем извлечь контент
             error_msg = f"Error extracting response content: {str(content_error)}"
