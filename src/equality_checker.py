@@ -74,12 +74,16 @@ class DoomSlayer(SamplerBase):
         Returns:
             True если ответы совпадают, иначе False
         """
+        # Нормализуем разные виды минусов и тире
+        predict = predict.replace('–', '-').replace('—', '-').replace('−', '-')
+        answer = answer.replace('–', '-').replace('—', '-').replace('−', '-')
+        
         predict = self.preprocess_answer(predict, False)
         answer = self.preprocess_answer(answer, False)
         if self.debug:
             print(answer, predict)
         return "".join(answer).replace(",", ".") == "".join(predict).replace(",", ".")
-
+        
     def latex_equivalent(self, latex_formula1: str, latex_formula2: str) -> bool:
         """
         Сравнивает две формулы в формате LaTeX через Sympy.

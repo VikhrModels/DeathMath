@@ -131,8 +131,8 @@ class Leaderboard:
         """
         Сохраняет все результаты в основной файл.
         """
-        with open(self.results_file, "w") as f:
-            json.dump(self.results, f, indent=2)
+        with open(self.results_file, "w", encoding="utf-8") as f:
+            json.dump(self.results, f, indent=2, ensure_ascii=False)
 
     def _get_measured_models(self) -> Set[str]:
         """

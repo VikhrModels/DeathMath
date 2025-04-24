@@ -379,17 +379,13 @@ class OaiSampler(SamplerBase):
 
                     # Для всех других ошибок или если исчерпали попытки для JSONDecodeError
                     error_msg = (
-                        f"\nError during API call:"
-                        f"\nModel: {self.model_name}"
-                        f"\nAPI Type: {self.api_type}"
-                        f"\nBase URL: {self.base_url}"
+                        f"API call error: {self.model_name}, {self.api_type}"
                     )
                     if self.api_key:
-                        error_msg += f"\nAPI Key (first 8 chars): {self.api_key[:8]}..."
+                        error_msg += f" (API key: {self.api_key[:4]}...)"
                     elif self.credentials:
-                        error_msg += f"\nCredentials used for: {self.api_type}"
-                    error_msg += f"\nError: {type(e).__name__}: {str(e)}"
-                    error_msg += f"\nTraceback: {traceback.format_exc()}"
+                        error_msg += f" (using credentials for {self.api_type})"
+                    error_msg += f" - {type(e).__name__}: {str(e)}"
 
                     logger.error(error_msg)
                     raise Exception(
