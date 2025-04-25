@@ -43,7 +43,7 @@ API_ERROR_PATTERNS = [
 
 
 # Параметры повтора для ошибок JSON
-JSON_ERROR_MAX_RETRY = 5  # Максимальное количество повторов при ошибках JSON
+JSON_ERROR_MAX_RETRY = 12  # Максимальное количество повторов при ошибках JSON
 JSON_ERROR_RETRY_DELAY = 5  # Начальная задержка между повторами (в секундах)
 
 
@@ -84,17 +84,21 @@ def safe_response_dump(response):
     try:
         # Если у объекта есть метод to_dict или __dict__
         if hasattr(response, "to_dict") and callable(getattr(response, "to_dict")):
-            return str(response.to_dict())
+            response_dict = response.to_dict()
+            return json.dumps(response_dict, ensure_ascii=False, indent=2, default=str)
         elif hasattr(response, "__dict__"):
-            return str(response.__dict__)
+            response_dict = response.__dict__
+            # Фильтруем внутренние атрибуты, начинающиеся с '_'
+            filtered_dict = {k: v for k, v in response_dict.items() if not k.startswith('_')}
+            return json.dumps(filtered_dict, ensure_ascii=False, indent=2, default=str)
         # Если это словарь или другой тип, который можно сериализовать
         elif isinstance(response, (dict, list, str, int, float, bool)):
-            return json.dumps(response, default=str, indent=2)
+            return json.dumps(response, ensure_ascii=False, indent=2, default=str)
         else:
             # Для всех остальных типов преобразуем в строку
             return f"{type(response).__name__}: {str(response)}"
     except Exception as e:
-        # Если произошла ошибка при сериализации, возвращаем информацию о типе объекта
+        # Если произошла ошибка при сериализации, возвращаем информацию о типе объекта и ошибке
         return f"[Error serializing {type(response).__name__}: {str(e)}]"
 
 
@@ -240,8 +244,8 @@ class OaiSampler(SamplerBase):
         output: str = API_ERROR_OUTPUT
         metadata: Dict[str, int] = {"total_tokens": 0}
 
-        # Записываем в лог информацию о запросе
-        logger.info(f"Making API request to GigaChat model [{model}]")
+        # Записываем в лог краткую информацию о запросе
+        logger.info(f"API request: [{model}] (GigaChat)")
 
         # Создаем клиент и настраиваем параметры только один раз перед циклом
         client = GigaChat(model=model, verify_ssl_certs=False, **api_dict)
@@ -269,7 +273,7 @@ class OaiSampler(SamplerBase):
                     1 + attempt * 0.5
                 )  # Увеличиваем задержку с каждой попыткой
                 logger.info(
-                    f"Model [{model}]: Retrying API request (attempt {attempt + 1}/{API_MAX_RETRY}), waiting {retry_delay:.1f}s"
+                    f"Model [{model}]: Retry #{attempt + 1}/{API_MAX_RETRY}, delay: {retry_delay:.1f}s"
                 )
                 time.sleep(retry_delay)
 
@@ -279,12 +283,19 @@ class OaiSampler(SamplerBase):
 
                 # Проверяем содержимое ответа на наличие шаблонов ошибок
                 if self.contains_error_patterns(output):
-                    error_msg = output[:100] + "..." if len(output) > 100 else output
+                    error_msg = output.strip()  # Удаляем пробелы по краям
+                    log_content = error_msg[:100] + "..." if len(error_msg) > 100 else error_msg
                     logger.warning(
-                        f"Model [{model}] (attempt {attempt + 1}/{API_MAX_RETRY}): API returned error in response content: {error_msg}"
+                        f"Model [{model}] (attempt {attempt + 1}): Error pattern in response"
                     )
+                    # Логируем полный ответ при обнаружении ошибки
+                    logger.warning(f"Full response: {safe_response_dump(response)}")
+                    
                     if attempt < API_MAX_RETRY - 1:
                         continue  # Повторяем запрос
+                    else:  # Если это последняя попытка и ответ содержит ошибку
+                        output = f"API returned error pattern: {log_content}"  # Обновляем вывод для возврата
+                        break  # Прерываем цикл после последней попытки
 
                 # Извлекаем информацию о токенах
                 if hasattr(response, "usage") and response.usage:
@@ -298,22 +309,33 @@ class OaiSampler(SamplerBase):
                         response.usage, "total_tokens", 0
                     )
 
-                # Записываем в лог успешный запрос
+                # Записываем в лог только краткую информацию о успешном запросе
                 logger.info(
-                    f"Model [{model}]: API request successful, tokens used: {metadata['total_tokens']}"
+                    f"Model [{model}]: Success, tokens: {metadata['total_tokens']}"
                 )
 
                 # Успешно получен ответ без ошибок в содержимом
                 break
 
             except Exception as e:
-                logger.error(
-                    f"Model [{model}] (attempt {attempt + 1}/{API_MAX_RETRY}): API request failed: {type(e).__name__}: {str(e)}"
-                )
+                # При ошибке логируем только ключевую информацию и полный JSON ответа
+                logger.error(f"Model [{model}] (attempt {attempt + 1}): {type(e).__name__}: {str(e)}")
+                
+                # Логируем полный ответ API при ошибке
+                error_json = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "request_model": model,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "attempt": attempt + 1,
+                    "total_attempts": API_MAX_RETRY
+                }
+                logger.error(f"Error details: {json.dumps(error_json, ensure_ascii=False)}")
 
                 # Если это последняя попытка, фиксируем ошибку
                 if attempt == API_MAX_RETRY - 1:
-                    logger.error(f"Model [{model}]: All {API_MAX_RETRY} retry attempts exhausted. Last error: {str(e)}")
+                    logger.error(f"Model [{model}]: All {API_MAX_RETRY} retry attempts exhausted")
                     output = f"Error during API call: {str(e)}"
 
         return output, metadata
@@ -377,9 +399,7 @@ class OaiSampler(SamplerBase):
                             continue
 
                     # Для всех других ошибок или если исчерпали попытки для JSONDecodeError
-                    error_msg = (
-                        f"API call error: {self.model_name}, {self.api_type}"
-                    )
+                    error_msg = f"API call error: {self.model_name}, {self.api_type}"
                     if self.api_key:
                         error_msg += f" (API key: {self.api_key[:4]}...)"
                     elif self.credentials:
@@ -420,10 +440,26 @@ class OaiSampler(SamplerBase):
         if self.max_tokens is not None:
             api_args["max_tokens"] = self.max_tokens
 
-        # Записываем в лог информацию о запросе для OpenAI
-        logger.info(f"Making OpenAI API request to model [{self.model_name}]")
+        # Записываем только краткую информацию о запросе для OpenAI
+        logger.info(f"API request: [{self.model_name}]")
+
+        try:
+            response = self.client.chat.completions.create(**api_args)
+        except Exception as e:
+            # Подробно логируем только ошибки API
+            logger.error(f"Model [{self.model_name}]: API error: {type(e).__name__}: {str(e)}")
             
-        response = self.client.chat.completions.create(**api_args)
+            # Логируем полный ответ API при ошибке
+            error_json = {
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "request_model": self.model_name,
+                "request_temperature": self.temperature,
+                "request_max_tokens": self.max_tokens,
+            }
+            logger.error(f"Error details: {json.dumps(error_json, ensure_ascii=False)}")
+            
+            raise e
 
         # Инициализируем метаданные
         metadata: Dict[str, int] = {"total_tokens": 0}
@@ -451,17 +487,23 @@ class OaiSampler(SamplerBase):
                     response.choices[0].message, "content"
                 ):
                     result = response.choices[0].message.content
-                    
+
                     # Проверяем содержимое ответа на наличие шаблонов ошибок
                     if self.contains_error_patterns(result):
-                        error_msg = result[:100] + "..." if len(result) > 100 else result
+                        error_msg = result.strip()
+                        log_content = (
+                            error_msg[:100] + "..."
+                            if len(error_msg) > 100
+                            else error_msg
+                        )
                         logger.warning(
-                            f"Model [{self.model_name}]: API returned error in response content: {error_msg}"
+                            f"Model [{self.model_name}]: Error pattern in response: {log_content}"
                         )
+                        # Логируем полный ответ при обнаружении ошибки
+                        logger.warning(f"Full response: {safe_response_dump(response)}")
                     else:
-                        logger.info(
-                            f"Model [{self.model_name}]: API request successful, tokens used: {metadata['total_tokens']}"
-                        )
+                        # Для успешных запросов - только модель, статус и токены
+                        logger.info(f"Model [{self.model_name}]: Success, tokens: {metadata['total_tokens']}")
 
                     if return_metadata:
                         return result, metadata
@@ -475,17 +517,23 @@ class OaiSampler(SamplerBase):
                         and "content" in response["choices"][0]["message"]
                     ):
                         result = response["choices"][0]["message"]["content"]
-                        
+
                         # Проверяем содержимое ответа на наличие шаблонов ошибок
                         if self.contains_error_patterns(result):
-                            error_msg = result[:100] + "..." if len(result) > 100 else result
+                            error_msg = result.strip()
+                            log_content = (
+                                error_msg[:100] + "..."
+                                if len(error_msg) > 100
+                                else error_msg
+                            )
                             logger.warning(
-                                f"Model [{self.model_name}]: API returned error in response content: {error_msg}"
+                                f"Model [{self.model_name}]: Error pattern in response: {log_content}"
                             )
+                            # Логируем полный ответ при обнаружении ошибки
+                            logger.warning(f"Full response: {safe_response_dump(response)}")
                         else:
-                            logger.info(
-                                f"Model [{self.model_name}]: API request successful, tokens used: {metadata['total_tokens']}"
-                            )
+                            # Для успешных запросов - только модель, статус и токены
+                            logger.info(f"Model [{self.model_name}]: Success, tokens: {metadata['total_tokens']}")
 
                         if return_metadata:
                             return result, metadata
@@ -519,8 +567,12 @@ class OaiSampler(SamplerBase):
             logger.error(
                 f"Model [{self.model_name}]: Error extracting content from response: {str(content_error)}"
             )
-            logger.error(f"Model [{self.model_name}]: Traceback: {traceback.format_exc()}")
-            logger.error(f"Model [{self.model_name}]: Response dump: {safe_response_dump(response)}")
+            logger.error(
+                f"Model [{self.model_name}]: Traceback: {traceback.format_exc()}"
+            )
+            logger.error(
+                f"Model [{self.model_name}]: Response dump: {safe_response_dump(response)}"
+            )
 
             # Возвращаем сообщение об ошибке если не можем извлечь контент
             error_msg = f"Error extracting response content: {str(content_error)}"
