@@ -1,103 +1,93 @@
-import re
+import numpy as np
+import pandas as pd
+import json
 import sympy
-from typing import List, Union
 from sympy.parsing.latex import parse_latex
+import os
+import re
+from fractions import Fraction
 
 
 class DoomSlayer:
-    """
-    Класс для проверки эквивалентности математических выражений и ответов.
-
-    Используется для оценки правильности ответов моделей, сравнивая их с эталонными ответами.
-    Поддерживает различные форматы ответов, включая числовые и LaTeX-выражения.
-    """
-
-    def __init__(self, EPS: float = 1e-2):
-        """
-        Инициализирует проверщик математических выражений.
-
-        Args:
-            EPS: Допустимая погрешность при сравнении числовых значений
-        """
+    def __init__(self, EPS=1e-2):
         self.EPS = EPS
+        self.num_pattern = re.compile(r"-?\d+(?:[.,]\d+)?$")
+        self.frac_pattern = re.compile(r"-?\d+\s*/\s*\d+$")
+        self.latex_frac_pattern = re.compile(r"\\frac\{(-?\d+)\}\{(\d+)\}")
+        self.minus_map = {"\u2212": "-", "\u2013": "-", "\u2014": "-"}  # ADDED
 
-    def preprocess_answer(self, answer: str, hard: bool) -> Union[List[str], List]:
-        """
-        Предобрабатывает ответ для последующего сравнения.
+    def _normalize(self, s: str) -> str:
+        for uni, ascii_minus in self.minus_map.items():  # ADDED
+            s = s.replace(uni, ascii_minus)  # ADDED
+        return s.strip()  # ADDED
 
-        Args:
-            answer: Строка с ответом
-            hard: Флаг режима проверки (True для сложной проверки, False для простой)
-
-        Returns:
-            Предобработанная строка или список строк
-        """
+    def preprocess_answer(self, answer: str, hard: bool):
+        answer = self._normalize(answer)  # ADDED
+        answer = answer[:-1] if answer.endswith(".") else answer
         if not hard:
-            return re.findall("[0-9.]+", answer)
-        answer = answer.lower().replace("**", "^").split(";")
-        return answer
+            return re.findall(r"-?\d+(?:[.,]\d+)?", answer)
+        return answer.lower().replace("**", "^").split(";")
 
-    def __call__(self, predict: str, answer: str) -> bool:
-        """
-        Проверяет эквивалентность предсказанного и правильного ответов.
+    def __call__(self, answer: str, predict: str) -> bool:
+        if not answer or not predict:
+            return False
+        answer = self._normalize(answer)  # ADDED
+        predict = self._normalize(predict)  # ADDED
 
-        Args:
-            predict: Предсказанный ответ
-            answer: Правильный ответ
+        if self._compare_fraction(answer, predict):
+            return True
 
-        Returns:
-            True если ответы эквивалентны, иначе False
-        """
-        if not re.match("[0-9., ]+", answer) or not re.match("[0-9,. ]+", predict):
-            return self.latex_equivalent(predict, answer)
-        if (
-            re.match("[0-9., ]+", answer)[0] == answer
-            and re.match("[0-9,. ]+", predict)[0] == predict
-        ):
-            return self.simple_check(predict, answer)
+        if self.num_pattern.match(answer) and self.num_pattern.match(predict):
+            return self.simple_check(predict, answer) or self.latex_equivalent(
+                predict, answer
+            )
+
         return self.latex_equivalent(predict, answer)
 
     def simple_check(self, predict: str, answer: str) -> bool:
-        """
-        Выполняет простую проверку числовых ответов.
+        p = self.preprocess_answer(predict, False)
+        a = self.preprocess_answer(answer, False)
+        return "".join(a).replace(",", ".") == "".join(p).replace(",", ".")
 
-        Args:
-            predict: Предсказанный ответ
-            answer: Правильный ответ
+    def _compare_fraction(self, s1: str, s2: str) -> bool:
+        def to_frac(s):
+            s = s.strip()
+            m = self.frac_pattern.fullmatch(s)
+            if m:
+                num, den = map(int, s.split("/"))
+                return Fraction(num, den)
+            m2 = self.latex_frac_pattern.fullmatch(s)
+            if m2:
+                num, den = map(int, m2.groups())
+                return Fraction(num, den)
+            return None
 
-        Returns:
-            True если ответы эквивалентны, иначе False
-        """
-        predict = self.preprocess_answer(predict, False)
-        answer = self.preprocess_answer(answer, False)
-        return "".join(answer).replace(",", ".") == "".join(predict).replace(",", ".")
+        f1 = to_frac(s1)
+        f2 = to_frac(s2)
+        if f1 is not None and f2 is not None:
+            return abs(float(f1) - float(f2)) <= self.EPS
+        return False
 
-    def latex_equivalent(self, latex_formula1: str, latex_formula2: str) -> bool:
-        """
-        Сравнивает две формулы в формате LaTeX через Sympy.
+    def latex_equivalent(self, latex1: str, latex2: str) -> bool:
+        parts1 = self.preprocess_answer(latex1, True)
+        parts2 = self.preprocess_answer(latex2, True)
+        if len(parts1) != len(parts2):
+            return False
 
-        Args:
-            latex_formula1: Первая формула в формате LaTeX
-            latex_formula2: Вторая формула в формате LaTeX
-
-        Returns:
-            True если формулы математически эквивалентны, иначе False
-        """
-        latex_formula1 = self.preprocess_answer(latex_formula1, True)
-        latex_formula2 = self.preprocess_answer(latex_formula2, True)
-
-        results = [True for _ in range(len(latex_formula1))]
-        for i in range(len(latex_formula1)):
+        for a, b in zip(parts1, parts2):
             try:
-                expr1 = parse_latex(latex_formula1[i])
-                expr2 = parse_latex(latex_formula2[i])
-                diff = sympy.simplify(expr1 - expr2)
-                results[i] = diff <= self.EPS
-            except Exception:
+                e1 = parse_latex(a)
+                e2 = parse_latex(b)
+                diff = sympy.simplify(abs(e1 - e2))
                 try:
-                    if latex_formula1[i] == latex_formula2[i]:
-                        continue
-                except:
+                    diff_rel = sympy.simplify(abs(e1 - e2) / abs(e2))
+                    diff = min(diff, diff_rel)
+                except Exception:
                     pass
-                results[i] = False
-        return all(results)
+                if diff > self.EPS:
+                    return False
+            except Exception:
+                if a != b:
+                    return False
+
+        return True

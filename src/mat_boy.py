@@ -96,8 +96,8 @@ class RussianMathEval(Eval):
             response_text, metadata = sampler(prompt_messages, return_metadata=True)
 
             answer_pattern = r"(?:Answer|Ответ):\s*(.+)$"
-            match = re.search(answer_pattern, response_text, re.MULTILINE)
-            extracted_answer = match.group(1).strip() if match else None
+            matches = list(re.finditer(answer_pattern, response_text, re.MULTILINE))
+            extracted_answer = matches[-1].group(1).strip() if matches else None
 
             if self.debug:
                 print(f"Extracted answer: {extracted_answer}")
@@ -210,8 +210,8 @@ class RussianPhysicsEval(Eval):
             response_text, metadata = sampler(prompt_messages, return_metadata=True)
 
             answer_pattern = r"(?:Answer|Ответ):\s*(.+)$"
-            match = re.search(answer_pattern, response_text, re.MULTILINE)
-            extracted_answer = match.group(1).strip() if match else None
+            matches = list(re.finditer(answer_pattern, response_text, re.MULTILINE))
+            extracted_answer = matches[-1].group(1).strip() if matches else None
 
             if self.debug:
                 print(f"Extracted answer: {extracted_answer}")
@@ -329,8 +329,8 @@ class MathDemonEval(Eval):
             response_text, metadata = sampler(prompt_messages, return_metadata=True)
 
             answer_pattern = r"(?:Answer|Ответ):\s*(.+)$"
-            match = re.search(answer_pattern, response_text, re.MULTILINE)
-            extracted_answer = match.group(1).strip() if match else None
+            matches = list(re.finditer(answer_pattern, response_text, re.MULTILINE))
+            extracted_answer = matches[-1].group(1).strip() if matches else None
 
             if self.debug:
                 print(f"Extracted answer: {extracted_answer}")
