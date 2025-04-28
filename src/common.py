@@ -8,7 +8,7 @@ import io
 import jinja2
 import numpy as np
 import requests
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
 from .types import EvalResult, SingleEvalResult
