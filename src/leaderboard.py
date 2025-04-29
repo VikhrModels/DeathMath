@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 import json
 from datetime import datetime
-from src.equality_checker import MathEqualityChecker
+from src.equality_checker import DoomSlayer
 from src.sampler import OaiSampler
 from src.mat_boy import RussianMathEval, MathDemonEval
 from src.types import SingleEvalResult
@@ -24,7 +24,7 @@ class Leaderboard:
     """
 
     def __init__(
-        self, config_path: str, output_dir: str = "results", max_workers: int = 4
+        self, config_path: str, output_dir: str = "results", max_workers: int = 4, retry_incomplete: bool = False
     ) -> None:
         """
         Инициализирует лидерборд для оценки моделей.
@@ -33,11 +33,13 @@ class Leaderboard:
             config_path: Путь к конфигурационному файлу YAML
             output_dir: Директория для сохранения результатов и кэша
             max_workers: Максимальное количество параллельных потоков
+            retry_incomplete: Перезапускать оценку моделей с неполными результатами
         """
         self.config_path: str = config_path
         self.output_dir: Path = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.max_workers: int = max_workers
+        self.retry_incomplete: bool = retry_incomplete
 
         self.details_dir: Path = self.output_dir / "details"
         self.details_dir.mkdir(exist_ok=True)
@@ -47,7 +49,7 @@ class Leaderboard:
         with open(config_path, "r") as f:
             self.config: Dict[str, Any] = yaml.safe_load(f)
         self.model_links: Dict[str, str] = self.config.get("model_links", {})
-        self.equality_checker: MathEqualityChecker = MathEqualityChecker()
+        self.equality_checker: DoomSlayer = DoomSlayer()
         self.results_file: Path = self.output_dir / "leaderboard_results.json"
         self.results: Dict[str, Dict[str, Any]] = self._load_results()
 
@@ -87,7 +89,7 @@ class Leaderboard:
         """
         cache_file = self.cache_dir / f"{cache_key}.json"
         if cache_file.exists():
-            with open(cache_file, "r") as f:
+            with open(cache_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         return None
 
@@ -114,14 +116,14 @@ class Leaderboard:
 
         if self.cache_dir.exists():
             for cache_file in self.cache_dir.glob("*.json"):
-                with open(cache_file, "r") as f:
+                with open(cache_file, "r", encoding="utf-8") as f:
                     cached_result = json.load(f)
                     model_name = cached_result["model_name"]
                     timestamp = cached_result["timestamp"]
                     results[f"{model_name}_{timestamp}"] = cached_result
 
         if self.results_file.exists():
-            with open(self.results_file, "r") as f:
+            with open(self.results_file, "r", encoding="utf-8") as f:
                 file_results = json.load(f)
                 results.update(file_results)
 
@@ -131,8 +133,8 @@ class Leaderboard:
         """
         Сохраняет все результаты в основной файл.
         """
-        with open(self.results_file, "w") as f:
-            json.dump(self.results, f, indent=2)
+        with open(self.results_file, "w", encoding="utf-8") as f:
+            json.dump(self.results, f, indent=2, ensure_ascii=False)
 
     def _get_measured_models(self) -> Set[str]:
         """
@@ -144,7 +146,7 @@ class Leaderboard:
         measured_models = set()
         if self.cache_dir.exists():
             for cache_file in self.cache_dir.glob("*.json"):
-                with open(cache_file, "r") as f:
+                with open(cache_file, "r", encoding="utf-8") as f:
                     cached_data = json.load(f)
                     measured_models.add(cached_data["model_name"])
         return measured_models
@@ -560,26 +562,42 @@ class Leaderboard:
         config_models = set(self.config["model_list"])
         new_models = config_models - measured_models
 
+        # Определяем модели, которые нужно перетестировать (модели с неполными результатами)
+        models_with_incomplete_results = set()
+        if self.retry_incomplete:
+            # Получаем модели, у которых отсутствуют результаты для RussianMath
+            models_with_math_results = set()
+            for key, result in self.results.items():
+                if (result.get("dataset") == "RussianMath" or result.get("dataset") is None) and result["model_name"] in config_models:
+                    models_with_math_results.add(result["model_name"])
+            
+            models_with_incomplete_results = config_models - models_with_math_results
+            if models_with_incomplete_results:
+                print(f"\nFound models with incomplete RussianMath results that will be retested: {', '.join(models_with_incomplete_results)}")
+
         if new_models:
             print(f"\nFound new models to evaluate: {', '.join(new_models)}")
 
         for model_name in config_models:
             if model_name in measured_models:
                 for cache_file in self.cache_dir.glob("*.json"):
-                    with open(cache_file, "r") as f:
+                    with open(cache_file, "r", encoding="utf-8") as f:
                         cached_data = json.load(f)
                         if cached_data["model_name"] == model_name:
                             key = f"{model_name}_{cached_data['timestamp']}"
                             self.results[key] = cached_data
                             break
 
-        if new_models:
+        # Объединяем новые модели и модели с неполными результатами
+        models_to_evaluate = new_models | models_with_incomplete_results
+
+        if models_to_evaluate:
             uncached_args = [
                 (model_name, system_prompts.get(model_name))
-                for model_name in new_models
+                for model_name in models_to_evaluate
             ]
 
-            print(f"\nEvaluating {len(uncached_args)} new models...")
+            print(f"\nEvaluating {len(uncached_args)} models...")
 
             def handle_sigint(signum: int, frame: Any) -> None:
                 print(
@@ -599,7 +617,7 @@ class Leaderboard:
                     ]
 
                     pbar = tqdm(
-                        total=len(futures), desc="Evaluating new models", leave=True
+                        total=len(futures), desc="Evaluating models", leave=True
                     )
 
                     completed = 0
@@ -642,7 +660,8 @@ class Leaderboard:
             print("\nNo new models to evaluate, using cached results")
 
         missing_models = config_models - set(
-            result["model_name"] for result in self.results.values()
+            result["model_name"] for result in self.results.values() 
+            if result.get("dataset") == "RussianMath" or result.get("dataset") is None
         )
         if missing_models:
             print(f"\nWarning: Missing results for models: {', '.join(missing_models)}")
@@ -764,19 +783,37 @@ class Leaderboard:
 
         config_models = set(self.config["model_list"])
         new_models = config_models - measured_models
+        
+        # Определяем модели, которые нужно перетестировать
+        models_with_incomplete_results = set()
+        if self.retry_incomplete:
+            # Получаем модели, у которых есть результаты для RussianPhysics, 
+            # но возможно были ошибки или прерывания
+            models_with_physics_results = set()
+            for key, result in self.results.items():
+                if result.get("dataset") == "RussianPhysics" and result["model_name"] in config_models:
+                    if result.get("score") is not None and result.get("score") > 0:
+                        models_with_physics_results.add(result["model_name"])
+            
+            models_with_incomplete_results = config_models - models_with_physics_results - new_models
+            if models_with_incomplete_results:
+                print(f"\nFound models with incomplete RussianPhysics results that will be retested: {', '.join(models_with_incomplete_results)}")
 
         if new_models:
             print(
                 f"\nFound new models to evaluate on RussianPhysics: {', '.join(new_models)}"
             )
 
-        if new_models:
+        # Объединяем новые модели и модели с неполными результатами
+        models_to_evaluate = new_models | models_with_incomplete_results
+
+        if models_to_evaluate:
             uncached_args = [
                 (model_name, system_prompts.get(model_name))
-                for model_name in new_models
+                for model_name in models_to_evaluate
             ]
 
-            print(f"\nEvaluating {len(uncached_args)} new models on RussianPhysics...")
+            print(f"\nEvaluating {len(uncached_args)} models on RussianPhysics...")
 
             def handle_sigint(signum: int, frame: Any) -> None:
                 print(
@@ -797,7 +834,7 @@ class Leaderboard:
 
                     pbar = tqdm(
                         total=len(futures),
-                        desc="Evaluating new models on RussianPhysics",
+                        desc="Evaluating models on RussianPhysics",
                         leave=True,
                     )
 

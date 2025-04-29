@@ -1,9 +1,0 @@
-{
-  "model_name": "meta-llama/llama-4-scout",
-  "score": 0.3736842105263158,
-  "total_tokens": 0,
-  "evaluation_time": 648.4644145965576,
-  "system_prompt": "You are a helpful math assistant. Answer in Russian.",
-  "timestamp": "20250409_073324",
-  "cache_key": "05f58add3bb4b44d37663446c7523747"
-}

@@ -6,19 +6,19 @@ from .types import Eval, EvalResult, SamplerBase, SingleEvalResult
 from . import common
 
 QUERY_TEMPLATE_RU = """
-Реши следующую математическую задачу пошагово. Последняя строка твоего ответа должна быть в формате Ответ: $ANSWER (без кавычек), где $ANSWER - это ответ на задачу.
+Реши следующую математическую задачу пошагово. Последняя строка твоего ответа должна быть в формате Ответ: $ANSWER (без кавычек, скобок и текстового форматирования), где $ANSWER - это ответ на задачу. Ответ должен быть точным, если необходимо - несократимой дробью через точку. Если задача подразумевает перечисления - выпиши все ответы слитно без разделителей. Если в задаче требуется найти несколько неизвестных - перечисляй их через ";". Используй те единицы измерения, которые содержатся в условии, если в нем не сказано обратного, сами единицы измерения в ответ не записывай. Если требуется выбрать что-то перечислительное - напиши только само число. После ответа не пиши ничего. Далее сама задача:
 
 {task}
 
-Не забудь написать ответ в отдельной строке после "Ответ:", без использования команды \\boxed.
+Не забудь написать ответ в отдельной строке после "Ответ:", без использования команды \\boxed и в нужном формате.
 """.strip()
 
 PHYSICS_TEMPLATE_RU = """
-Реши следующую задачу по физике пошагово. Последняя строка твоего ответа должна быть в формате Ответ: $ANSWER (без кавычек), где $ANSWER - это ответ на задачу.
+Реши следующую задачу по физике пошагово. Последняя строка твоего ответа должна быть в формате Ответ: $ANSWER (без кавычек, скобок и текстового форматирования), где $ANSWER - это ответ на задачу. Ответ должен быть точным, если необходимо - несократимой дробью через точку. Если задача подразумевает перечисления - выпиши все ответы слитно без разделителей. Если в задаче требуется найти несколько неизвестных - перечисляй их через ";". Используй те единицы измерения, которые содержатся в условии, если в нем не сказано обратного, сами единицы измерения в ответ не записывай. После ответа не пиши ничего. Если требуется выбрать что-то перечислительное - напиши только само число. После ответа не пиши ничего. Далее сама задача:
 
 {task}
 
-Не забудь написать ответ в отдельной строке после "Ответ:", без использования команды \\boxed.
+Не забудь написать ответ в отдельной строке после "Ответ:", без использования команды \\boxed и в нужном формате.
 """.strip()
 
 
@@ -96,8 +96,8 @@ class RussianMathEval(Eval):
             response_text, metadata = sampler(prompt_messages, return_metadata=True)
 
             answer_pattern = r"(?:Answer|Ответ):\s*(.+)$"
-            match = re.search(answer_pattern, response_text, re.MULTILINE)
-            extracted_answer = match.group(1).strip() if match else None
+            matches = list(re.finditer(answer_pattern, response_text, re.MULTILINE))
+            extracted_answer = matches[-1].group(1).strip() if matches else None
 
             if self.debug:
                 print(f"Extracted answer: {extracted_answer}")
@@ -131,7 +131,9 @@ class RussianMathEval(Eval):
                 tokens=metadata.get("total_tokens", 0),
             )
 
-        results = common.map_with_progress(fn, self.examples)
+        results = common.map_with_progress(
+            fn, self.examples, model_name=sampler.model_name
+        )
         return common.aggregate_results(results)
 
 
@@ -208,8 +210,8 @@ class RussianPhysicsEval(Eval):
             response_text, metadata = sampler(prompt_messages, return_metadata=True)
 
             answer_pattern = r"(?:Answer|Ответ):\s*(.+)$"
-            match = re.search(answer_pattern, response_text, re.MULTILINE)
-            extracted_answer = match.group(1).strip() if match else None
+            matches = list(re.finditer(answer_pattern, response_text, re.MULTILINE))
+            extracted_answer = matches[-1].group(1).strip() if matches else None
 
             if self.debug:
                 print(f"Extracted answer: {extracted_answer}")
@@ -243,7 +245,9 @@ class RussianPhysicsEval(Eval):
                 tokens=metadata.get("total_tokens", 0),
             )
 
-        results = common.map_with_progress(fn, self.examples)
+        results = common.map_with_progress(
+            fn, self.examples, model_name=sampler.model_name
+        )
         return common.aggregate_results(results)
 
 
@@ -325,8 +329,8 @@ class MathDemonEval(Eval):
             response_text, metadata = sampler(prompt_messages, return_metadata=True)
 
             answer_pattern = r"(?:Answer|Ответ):\s*(.+)$"
-            match = re.search(answer_pattern, response_text, re.MULTILINE)
-            extracted_answer = match.group(1).strip() if match else None
+            matches = list(re.finditer(answer_pattern, response_text, re.MULTILINE))
+            extracted_answer = matches[-1].group(1).strip() if matches else None
 
             if self.debug:
                 print(f"Extracted answer: {extracted_answer}")
@@ -362,5 +366,7 @@ class MathDemonEval(Eval):
                 tokens=metadata.get("total_tokens", 0),
             )
 
-        results = common.map_with_progress(fn, self.examples)
+        results = common.map_with_progress(
+            fn, self.examples, model_name=sampler.model_name
+        )
         return common.aggregate_results(results)

@@ -1,12 +1,14 @@
 # https://github.com/openai/simple-evals/blob/main/common.py
 # all creds to openai
-from typing import Any, List, Callable, Dict, TypeVar, Union
+
+from typing import Any, List, Callable, Dict, TypeVar, Union, Optional
+
 
 import io
 import jinja2
 import numpy as np
 import requests
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
 from .types import EvalResult, SingleEvalResult
@@ -230,7 +232,10 @@ def aggregate_results(results: List[SingleEvalResult]) -> EvalResult:
 
 
 def map_with_progress(
-    fn: Callable[[T], R], items: List[T], max_workers: int = 4
+    fn: Callable[[T], R],
+    items: List[T],
+    max_workers: int = 4,
+    model_name: Optional[str] = None,
 ) -> List[R]:
     """
     Параллельно применяет функцию к элементам списка с отображением прогресса.
@@ -239,16 +244,23 @@ def map_with_progress(
         fn: Функция для применения к каждому элементу
         items: Список элементов для обработки
         max_workers: Максимальное количество параллельных потоков
+        model_name: (Опционально) Имя модели для отображения в прогресс-баре
+
 
     Returns:
         Список результатов применения функции
     """
+
+    desc = (
+        f"Processing examples for {model_name}" if model_name else "Processing examples"
+    )
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = list(
             tqdm(
                 executor.map(fn, items),
                 total=len(items),
-                desc="Processing examples",
+                desc=desc,  # Используем обновленное описание
                 leave=False,
             )
         )
