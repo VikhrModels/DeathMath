@@ -55,6 +55,11 @@ def main() -> None:
         default="all",
         help="Выбор датасета для оценки: all (все), russianmath, physics (по умолчанию: all)",
     )
+    parser.add_argument(
+        "--retry-incomplete",
+        action="store_true",
+        help="Перезапустить оценку моделей с неполными результатами",
+    )
     args = parser.parse_args()
 
     # Загружаем конфиг
@@ -73,7 +78,7 @@ def main() -> None:
 
 
     # Создаем и инициализируем лидерборд
-    leaderboard = Leaderboard(args.config, max_workers=args.max_workers)
+    leaderboard = Leaderboard(args.config, max_workers=args.max_workers, retry_incomplete=args.retry_incomplete)
 
     # Определяем системные промпты для каждой модели из конфига
     system_prompts: Dict[str, Optional[str]] = {

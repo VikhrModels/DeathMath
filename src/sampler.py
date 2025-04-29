@@ -450,25 +450,27 @@ class OaiSampler(SamplerBase):
         if self.api_type != "gigachat":
             for json_retry in range(JSON_ERROR_MAX_RETRY):
                 try:
-                    # Основной блок обработки OpenAI API
                     return self._process_openai_request(messages, return_metadata)
                 except Exception as e:
-                    # Проверяем, является ли ошибка JSONDecodeError
-                    if (
+                    # Проверяем, является ли ошибка JSONDecodeError или TypeError (для обработки некорректной структуры ответа)
+                    is_retryable_error = (
                         isinstance(e, JSONDecodeError)
                         or "JSONDecodeError" in str(e)
                         or "Expecting value" in str(e)
-                    ):
+                        or isinstance(e, TypeError)
+                    )
+
+                    if is_retryable_error:
                         retry_delay = JSON_ERROR_RETRY_DELAY * (1 + json_retry * 0.5)
                         logger.warning(
-                            f"Model [{self.model_name}] (JSONDecodeError attempt {json_retry + 1}/{JSON_ERROR_MAX_RETRY}): retrying in {retry_delay:.1f}s. Error: {str(e)}"
+                            f"Model [{self.model_name}] ({type(e).__name__} attempt {json_retry + 1}/{JSON_ERROR_MAX_RETRY}): retrying in {retry_delay:.1f}s. Error: {str(e)}"
                         )
                         time.sleep(retry_delay)
                         # Если это не последняя попытка, продолжаем цикл
                         if json_retry < JSON_ERROR_MAX_RETRY - 1:
                             continue
 
-                    # Для всех других ошибок или если исчерпали попытки для JSONDecodeError
+                    # Для всех других ошибок или если исчерпали попытки для JSONDecodeError/TypeError
                     error_msg = f"API call error: {self.model_name}, {self.api_type}"
                     if self.api_key:
                         error_msg += f" (API key: {self.api_key[:4]}...)"
@@ -535,7 +537,7 @@ class OaiSampler(SamplerBase):
         metadata: Dict[str, int] = {"total_tokens": 0}
 
         # Извлекаем информацию о токенах из разных типов ответов
-        if hasattr(response, "usage"):
+        if hasattr(response, "usage") and response.usage:
             metadata["prompt_tokens"] = getattr(response.usage, "prompt_tokens", 0)
             metadata["completion_tokens"] = getattr(
                 response.usage, "completion_tokens", 0
@@ -552,7 +554,8 @@ class OaiSampler(SamplerBase):
             result: str = ""
 
             # Стандартный путь для OpenAI API
-            if hasattr(response, "choices") and len(response.choices) > 0:
+            # Добавляем проверку на None перед доступом к choices
+            if hasattr(response, "choices") and response.choices is not None and len(response.choices) > 0:
                 if hasattr(response.choices[0], "message") and hasattr(
                     response.choices[0].message, "content"
                 ):
@@ -578,9 +581,8 @@ class OaiSampler(SamplerBase):
                     if return_metadata:
                         return result, metadata
                     return result
-
-            # Путь для словарного формата (некоторые API, включая OpenRouter)
-            if isinstance(response, dict) and "choices" in response:
+            # Добавляем проверку на None для словарного формата
+            elif isinstance(response, dict) and "choices" in response and response["choices"] is not None:
                 if len(response["choices"]) > 0:
                     if (
                         "message" in response["choices"][0]
@@ -628,12 +630,14 @@ class OaiSampler(SamplerBase):
             logger.warning(
                 f"Model [{self.model_name}]: {error_msg}. Response dump: {safe_response_dump(response)}"
             )
+            # Генерируем ошибку, чтобы вызвать повторную попытку в __call__
+            # Используем TypeError, так как он уже обрабатывается в __call__ для повторов
+            # или можно создать кастомный класс ошибки
+            raise TypeError(f"Unexpected response structure: {error_msg}")
 
-            if return_metadata:
-                return error_msg, metadata
-            return error_msg
 
         except Exception as content_error:
+            # Логируем ошибку извлечения контента
             logger.error(
                 f"Model [{self.model_name}]: Error extracting content from response: {str(content_error)}"
             )
@@ -644,9 +648,5 @@ class OaiSampler(SamplerBase):
                 f"Model [{self.model_name}]: Response dump: {safe_response_dump(response)}"
             )
 
-            # Возвращаем сообщение об ошибке если не можем извлечь контент
-            error_msg = f"Error extracting response content: {str(content_error)}"
-
-            if return_metadata:
-                return error_msg, metadata
-            return error_msg
+            # Перебрасываем исключение, чтобы его мог поймать __call__ для повторной попытки
+            raise content_error
