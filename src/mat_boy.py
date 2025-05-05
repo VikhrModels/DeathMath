@@ -30,7 +30,7 @@ class RussianMathEval(Eval):
     def __init__(
         self,
         equality_checker: SamplerBase,
-        num_examples: Optional[int] = 5,
+        num_examples: Optional[int] = None,
         n_repeats: int = 1,
         debug: bool = False,
     ) -> None:
@@ -51,8 +51,6 @@ class RussianMathEval(Eval):
 
         if num_examples and num_examples > 0:
             examples = examples[:num_examples]
-        else:
-            examples = examples[:5]
 
         self.examples: List[Dict[str, str]] = examples * n_repeats
         self.equality_checker: SamplerBase = equality_checker
@@ -145,7 +143,7 @@ class RussianPhysicsEval(Eval):
     def __init__(
         self,
         equality_checker: SamplerBase,
-        num_examples: Optional[int] = 5,
+        num_examples: Optional[int] = None,
         n_repeats: int = 1,
         debug: bool = False,
     ) -> None:
@@ -165,8 +163,6 @@ class RussianPhysicsEval(Eval):
 
         if num_examples and num_examples > 0:
             examples = examples[:num_examples]
-        else:
-            examples = examples[:5]
 
         self.examples: List[Dict[str, str]] = examples * n_repeats
         self.equality_checker: SamplerBase = equality_checker
@@ -257,7 +253,10 @@ class MathDemonEval(Eval):
     """
 
     def __init__(
-        self, subset_name: str, num_examples: Optional[int] = 1, debug: bool = False
+        self,
+        subset_name: str,
+        num_examples: Optional[int] = None,
+        debug: bool = False, 
     ) -> None:
         """
         Инициализирует оценку на подсетах MathDemon_Demidovich.
@@ -275,8 +274,6 @@ class MathDemonEval(Eval):
 
         if num_examples and num_examples > 0:
             examples = examples[:num_examples]
-        else:
-            examples = examples[:5]
 
         self.examples: List[Dict[str, str]] = examples
         self.debug: bool = debug

@@ -1,0 +1,47 @@
+# Пример конфигурационного файла для Doom Benchmark
+
+# Список моделей для оценки
+model_list:
+  - gpt-4o-mini  # Пример модели OpenAI
+  - gigachat-pro # Пример модели GigaChat
+  # - llama3-70b-local # Пример локально запущенной модели 
+
+# --- Общие настройки (применяются ко всем моделям, если не переопределены) ---
+
+# num_examples: 100 # Опционально: Ограничить количество примеров для каждого датасета.
+                   # Если закомментировано или отсутствует, используются ВСЕ примеры.
+# debug: false      # Опционально: Включить режим отладки для подробного вывода (по умолчанию false).
+
+# --- Конфигурация для конкретных моделей ---
+
+gpt-4o-mini:
+  model_name: gpt-4o-mini # Имя модели, как оно будет отображаться в результатах
+  endpoints:
+    - api_base: "https://api.openai.com/v1" # URL эндпоинта API
+      api_key: "YOUR_OPENAI_API_KEY"       # Ваш API ключ OpenAI (нужно заменить!)
+  api_type: openai        # Тип API (openai, gigachat)
+  parallel: 2             # Количество параллельных запросов к API для этой модели
+  system_prompt: "Ты - полезный ИИ-ассистент, решающий задачи по математике и физике. Отвечай на русском языке." # Системный промпт
+  max_tokens: 32000       # Максимальное количество токенов в ответе модели
+  # num_examples: 50      # Опционально: Переопределить количество примеров только для этой модели
+
+gigachat-pro:
+  model_name: GigaChat Pro # Имя модели для отображения
+  endpoints:
+    - base_url: "https://gigachat.devices.sberbank.ru/api/v1" # URL эндпоинта GigaChat API
+      credentials: "YOUR_GIGACHAT_API_CREDENTIALS" # Ваши данные для использования GigaChat (нужно заменить!)
+  api_type: gigachat
+  parallel: 1
+  system_prompt: "Реши предоставленную задачу по математике или физике. Отвечай на русском языке."
+  max_tokens: 8000
+  verify_ssl_certs: false # Опционально: Отключить проверку SSL-сертификата (если необходимо)
+
+# llama3-70b-local:
+#   model_name: Llama3-70B (Local VLLM)
+#   endpoints:
+#     - api_base: "http://localhost:8000/v1" # URL вашего локального VLLM сервера
+#       api_key: "dummy-key"                 # Ключ API (может быть любым для VLLM по умолчанию)
+#   api_type: openai
+#   parallel: 4
+#   system_prompt: "You are a helpful assistant. Answer in Russian." # Промпт может быть на английском, если модель лучше его понимает
+#   max_tokens: 8192
